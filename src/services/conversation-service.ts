@@ -9,58 +9,57 @@ interface UpsertConversationData {
   messageTimestamp: string;
 }
 
-/** Upsert conversation — create if new, update timestamps if exists */
+/** Atomic upsert conversation — create if new, update timestamps if exists (race-safe) */
 export async function upsertConversation(data: UpsertConversationData): Promise<string> {
   const now = new Date().toISOString();
 
-  // Build timestamp updates based on direction
-  const timestampUpdates: Record<string, string> = {
+  // Build upsert payload with direction-specific timestamps
+  const payload: Record<string, unknown> = {
+    kommo_chat_id: data.kommoChatId,
+    kommo_contact_id: data.contactId,
+    kommo_lead_id: data.leadId,
+    status: "active",
     last_message_at: data.messageTimestamp,
+    last_incoming_at: data.direction === "incoming" ? data.messageTimestamp : null,
+    last_outgoing_at: data.direction === "outgoing" ? data.messageTimestamp : null,
+    created_at: now,
     updated_at: now,
   };
-  if (data.direction === "incoming") {
-    timestampUpdates.last_incoming_at = data.messageTimestamp;
-  } else {
-    timestampUpdates.last_outgoing_at = data.messageTimestamp;
-  }
 
-  // Try to find existing conversation by kommo_chat_id
-  const { data: existing } = await supabase
+  const { data: result, error } = await supabase
     .from("conversations")
-    .select("id")
-    .eq("kommo_chat_id", data.kommoChatId)
-    .single();
-
-  if (existing) {
-    // Update existing conversation timestamps
-    await supabase
-      .from("conversations")
-      .update(timestampUpdates)
-      .eq("id", existing.id);
-    return existing.id;
-  }
-
-  // Create new conversation
-  const { data: inserted, error } = await supabase
-    .from("conversations")
-    .insert({
-      kommo_chat_id: data.kommoChatId,
-      kommo_contact_id: data.contactId,
-      kommo_lead_id: data.leadId,
-      status: "active",
-      last_message_at: data.messageTimestamp,
-      last_incoming_at: data.direction === "incoming" ? data.messageTimestamp : null,
-      last_outgoing_at: data.direction === "outgoing" ? data.messageTimestamp : null,
-      created_at: now,
-      updated_at: now,
-    })
+    .upsert(payload, { onConflict: "kommo_chat_id" })
     .select("id")
     .single();
 
   if (error) {
-    console.error("[ConversationService] Failed to insert conversation:", error.message);
+    console.error("[ConversationService] Upsert failed:", error.message);
     throw error;
   }
 
-  return inserted.id;
+  // After upsert, update only the relevant timestamp + contact/lead if non-null
+  // This handles the "existing conversation" case properly (avoids nullifying the other timestamp)
+  const updates: Record<string, unknown> = {
+    last_message_at: data.messageTimestamp,
+    updated_at: now,
+  };
+  if (data.direction === "incoming") {
+    updates.last_incoming_at = data.messageTimestamp;
+  } else {
+    updates.last_outgoing_at = data.messageTimestamp;
+  }
+  // Update contact/lead IDs if they were missing before (M3 fix)
+  if (data.contactId) updates.kommo_contact_id = data.contactId;
+  if (data.leadId) updates.kommo_lead_id = data.leadId;
+
+  const { error: updateError } = await supabase
+    .from("conversations")
+    .update(updates)
+    .eq("id", result.id);
+
+  if (updateError) {
+    console.error("[ConversationService] Update after upsert failed:", updateError.message);
+  }
+
+  return result.id;
 }

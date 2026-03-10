@@ -1,6 +1,12 @@
 import { supabase } from "../config/supabase-client.js";
 import type { WebhookSource } from "../types/database-types.js";
 
+/** Strip sensitive headers before logging */
+function sanitizeHeaders(headers: Record<string, unknown>): Record<string, unknown> {
+  const { authorization, cookie, "set-cookie": setCookie, ...safe } = headers;
+  return safe;
+}
+
 /** Save raw webhook payload to webhook_raw_log (write-ahead log) */
 export async function logRawWebhook(
   source: WebhookSource,
@@ -14,7 +20,7 @@ export async function logRawWebhook(
       source,
       event_type: eventType ?? null,
       raw_payload: payload,
-      headers,
+      headers: sanitizeHeaders(headers),
       processed: false,
     })
     .select("id")

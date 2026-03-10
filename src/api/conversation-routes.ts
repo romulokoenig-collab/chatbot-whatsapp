@@ -4,17 +4,33 @@ import { supabase } from "../config/supabase-client.js";
 
 export const conversationRoutes = Router();
 
+const VALID_STATUSES = ["active", "closed"] as const;
+
+/** Clamp pagination params to safe ranges */
+function parsePagination(query: Record<string, unknown>, defaults = { limit: 50, maxLimit: 200 }) {
+  const limit = Math.min(Math.max(Number(query.limit) || defaults.limit, 1), defaults.maxLimit);
+  const offset = Math.max(Number(query.offset) || 0, 0);
+  return { limit, offset };
+}
+
 /** GET /api/conversations — list conversations with filters */
 conversationRoutes.get("/conversations", async (req: Request, res: Response) => {
   try {
-    const { lead_id, status, since, limit = "50", offset = "0" } = req.query;
+    const { lead_id, status, since } = req.query;
+    const { limit, offset } = parsePagination(req.query as Record<string, unknown>);
+
+    // H2: validate status against enum
+    if (status && !VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
+      res.status(400).json({ error: `Invalid status. Allowed: ${VALID_STATUSES.join(", ")}` });
+      return;
+    }
 
     let query = supabase
       .from("conversations")
       .select("*")
       .order("last_message_at", { ascending: false })
-      .limit(Number(limit))
-      .range(Number(offset), Number(offset) + Number(limit) - 1);
+      .limit(limit)
+      .range(offset, offset + limit - 1);
 
     if (lead_id) query = query.eq("kommo_lead_id", String(lead_id));
     if (status) query = query.eq("status", String(status));
@@ -38,15 +54,15 @@ conversationRoutes.get("/conversations", async (req: Request, res: Response) => 
 conversationRoutes.get("/conversations/:id/messages", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { limit = "100", offset = "0" } = req.query;
+    const { limit, offset } = parsePagination(req.query as Record<string, unknown>, { limit: 100, maxLimit: 500 });
 
     const { data, error } = await supabase
       .from("messages")
       .select("*")
       .eq("conversation_id", id)
       .order("created_at", { ascending: false })
-      .limit(Number(limit))
-      .range(Number(offset), Number(offset) + Number(limit) - 1);
+      .limit(limit)
+      .range(offset, offset + limit - 1);
 
     if (error) {
       res.status(500).json({ error: error.message });
@@ -80,7 +96,6 @@ conversationRoutes.get("/leads/:kommoLeadId/status", async (req: Request, res: R
       return;
     }
 
-    // A lead is "responded" if last_outgoing_at >= last_incoming_at
     const conv = data[0];
     const responded = conv.last_outgoing_at && conv.last_incoming_at
       ? new Date(conv.last_outgoing_at) >= new Date(conv.last_incoming_at)

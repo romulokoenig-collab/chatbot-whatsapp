@@ -3,8 +3,8 @@ import { supabase } from "../config/supabase-client.js";
 
 export const healthRoutes = Router();
 
-/** GET /api/health — health check with DB connectivity test */
-healthRoutes.get("/health", async (_req, res) => {
+/** GET /health — public health check with DB connectivity test */
+healthRoutes.get("/", async (_req, res) => {
   try {
     const { error } = await supabase.from("conversations").select("id").limit(1);
 
