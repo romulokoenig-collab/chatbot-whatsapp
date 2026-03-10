@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:developers.kommo.com)",
+      "WebFetch(domain:www.kommo.com)",
+      "WebFetch(domain:www.skool.com)",
+      "WebFetch(domain:zapier.com)",
+      "Bash(xargs grep -l \"webhook\\\\|trigger\\\\|integration\")",
+      "WebFetch(domain:www.make.com)",
+      "WebFetch(domain:n8n.io)",
+      "WebFetch(domain:wazzup24.com)",
+      "WebFetch(domain:inicial-n8n.e8cf0x.easypanel.host)",
+      "Bash(npx claude-code-templates@latest --setup)",
+      "Bash(npx claude-code-templates@latest --help)",
+      "Bash(gh auth status)",
+      "Bash(where gh)",
+      "Bash(gh auth login --with-token)",
+      "Bash(winget install GitHub.cli --accept-source-agreements --accept-package-agreements)",
+      "Read(//c/Program Files/GitHub CLI//**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Read(//c/Users/**)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" auth login --with-token)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" auth status)",
+      "Bash(npm i -g claudekit-cli)",
+      "Bash(ck init -g)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/GitHub CLI\")",
+      "Bash(gh --version)",
+      "Bash(ck init -g --yes)",
+      "Bash(ck init --yes)",
+      "Bash(node \"$USERPROFILE/.claude/scripts/set-active-plan.cjs\" \"e:/Rômulo - Projetos Claude Code/Chatbot Whatsapp/plans/260310-0310-whatsapp-monitoring-kommo\")",
+      "Bash(npm init -y)",
+      "Bash(npm install express @supabase/supabase-js zod dotenv cors helmet)",
+      "Bash(npm install -D typescript tsx @types/express @types/cors @types/node)"
+    ]
+  }
+}
