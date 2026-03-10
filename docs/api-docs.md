@@ -3,8 +3,8 @@
 ## Base URL
 
 ```
-http://localhost:3000        (development)
-https://api.example.com      (production, via EasyPanel)
+http://localhost:3000                                    (development)
+https://inicial-kommo-monitor.e8cf0x.easypanel.host     (production, EasyPanel)
 ```
 
 ## Authentication

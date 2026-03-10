@@ -189,6 +189,7 @@ Stage 2 (Production):
 - Mount env file with secrets
 - Map port 3000 → external port
 - Configure health check: `GET /health`
+- **Live Instance:** https://inicial-kommo-monitor.e8cf0x.easypanel.host (deployed 2026-03-10)
 
 ## Data Flow Example
 

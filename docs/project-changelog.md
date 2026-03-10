@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## [1.0.0] - 2024-03-10
+## [1.0.0] - 2026-03-10
 
 **Status:** Released (MVP)
 
@@ -161,10 +161,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 | Version | Release Date | Status | Phase |
 |---------|--------------|--------|-------|
-| 1.0.0 | 2024-03-10 | Released | MVP |
-| 1.1.0 | Planned: 2024-03-20 | In Dev | Phase 2 |
-| 1.2.0 | Planned: 2024-04-15 | Backlog | Phase 3 |
-| 2.0.0 | Planned: 2024-06-01 | Backlog | Phase 4 |
+| 1.0.0 | 2026-03-10 | Released | MVP - Complete |
+| 1.1.0 | Planned: 2026-04-15 | Backlog | Phase 2 - Enhancements |
+| 1.2.0 | Planned: 2026-05-15 | Backlog | Phase 3 - Advanced Filtering |
+| 2.0.0 | Planned: 2026-07-01 | Backlog | Phase 4 - Analytics |
 
 ---
 
@@ -267,7 +267,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2024-03-10 | 1.0 | Created initial changelog after MVP completion |
+| 2026-03-10 | 1.0 | Created initial changelog after MVP completion |
+| 2026-03-10 | 1.1 | Updated with production deployment confirmation |
 
 ---
 
