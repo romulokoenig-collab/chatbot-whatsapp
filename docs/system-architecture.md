@@ -38,7 +38,7 @@ Middleware & route registration:
 
 ### 3. Request Routing
 
-**Webhook Ingestion:**
+**Webhook Ingestion (Phase B - Standard):**
 ```
 POST /webhooks/kommo
 ├─ kommo-standard-handler.ts (entry point)
@@ -46,6 +46,32 @@ POST /webhooks/kommo
 └─ Services:
    ├─ conversation-service.ts (upsert)
    └─ message-service.ts (insert)
+```
+
+**Webhook Ingestion (Phase A - ChatAPI):**
+```
+POST /webhooks/chatapi/:scopeId
+├─ chatapi-webhook-handler.ts (entry point)
+├─ webhook-raw-logger.ts (write-ahead log)
+├─ HMAC-SHA1 signature verification
+└─ Services:
+   ├─ conversation-service.ts (upsert)
+   ├─ message-service.ts (insert)
+   ├─ message-bridge-service.ts (forward to WhatsApp)
+   └─ message-mapping-service.ts (track message IDs)
+```
+
+**Webhook Ingestion (Phase A - WhatsApp Cloud API):**
+```
+GET /webhooks/whatsapp (Meta verification challenge)
+POST /webhooks/whatsapp (incoming messages from WhatsApp)
+├─ whatsapp-webhook-handler.ts (entry point)
+├─ webhook-raw-logger.ts (write-ahead log)
+└─ Services:
+   ├─ conversation-service.ts (upsert)
+   ├─ message-service.ts (insert)
+   ├─ message-bridge-service.ts (forward to Kommo ChatAPI)
+   └─ message-mapping-service.ts (track message IDs)
 ```
 
 **API Routes (Protected):**
@@ -160,6 +186,14 @@ GET /health
 | `SUPABASE_SERVICE_ROLE_KEY` | string | Yes | - | Service role key (full access) |
 | `API_KEY` | string | Yes | - | Secret key for protected routes |
 | `NODE_ENV` | enum | No | development | development \| production \| test |
+| `KOMMO_CHANNEL_ID` | string | No | - | Kommo ChatAPI channel ID (Phase A) |
+| `KOMMO_CHANNEL_SECRET` | string | No | - | Kommo ChatAPI channel secret for HMAC verification (Phase A) |
+| `KOMMO_SCOPE_ID` | string | No | - | Kommo account scope ID for ChatAPI (Phase A) |
+| `KOMMO_AMOJO_ID` | string | No | - | Kommo amoJob ID for message routing (Phase A) |
+| `WHATSAPP_ACCESS_TOKEN` | string | No | - | Meta WhatsApp Cloud API access token (Phase A) |
+| `WHATSAPP_PHONE_NUMBER_ID` | string | No | - | WhatsApp business phone number ID (Phase A) |
+| `WHATSAPP_VERIFY_TOKEN` | string | No | - | WhatsApp webhook verification token (Phase A) |
+| `WHATSAPP_APP_SECRET` | string | No | - | WhatsApp app secret for X-Hub-Signature verification (Phase A) |
 
 **Validation:**
 - Uses Zod for runtime validation
@@ -191,10 +225,12 @@ Stage 2 (Production):
 - Configure health check: `GET /health`
 - **Live Instance:** https://inicial-kommo-monitor.e8cf0x.easypanel.host (deployed 2026-03-10)
 
-## Data Flow Example
+## Data Flow Examples
+
+### Phase B: Kommo Standard Webhook (Incoming Only)
 
 ```
-Kommo User sends WhatsApp message
+Customer sends WhatsApp message via Kommo
         ↓
 Kommo CRM detects message_add event
         ↓
@@ -214,6 +250,64 @@ POST /webhooks/kommo (raw payload)
         ↓
 [Insert Message]
   - Store normalized message with conversation_id
+        ↓
+[Mark Processed]
+  - Update webhook_raw_log (status: processed)
+```
+
+### Phase A: Kommo ChatAPI Outgoing → WhatsApp
+
+```
+Agent sends message via Kommo ChatAPI custom channel
+        ↓
+Kommo ChatAPI webhook POST /webhooks/chatapi/:scopeId
+        ↓
+[HMAC-SHA1 Signature Verification] (validates Kommo_CHANNEL_SECRET)
+        ↓
+[Write-Ahead Log] → webhook_raw_log (status: pending)
+        ↓
+[Respond 200] (Kommo satisfied)
+        ↓
+[Parse & Normalize ChatAPI payload]
+  - Extract message fields
+  - Map to NormalizedMessage format
+        ↓
+[Upsert Conversation] → conversations table
+        ↓
+[Insert Message] → messages table
+        ↓
+[Bridge to WhatsApp Cloud API]
+  - Send via whatsapp-api-client
+  - Create message ID mapping (WhatsApp ID ↔ Kommo ID)
+        ↓
+[Mark Processed]
+  - Update webhook_raw_log (status: processed)
+```
+
+### Phase A: WhatsApp Cloud API Incoming → Kommo
+
+```
+Customer sends WhatsApp message to business phone number
+        ↓
+Meta's WhatsApp Cloud API POST /webhooks/whatsapp
+        ↓
+[Verify X-Hub-Signature] (validates WHATSAPP_APP_SECRET)
+        ↓
+[Write-Ahead Log] → webhook_raw_log (status: pending)
+        ↓
+[Respond 200] (Meta satisfied)
+        ↓
+[Parse & Normalize WhatsApp payload]
+  - Extract message fields
+  - Map to NormalizedMessage format
+        ↓
+[Upsert Conversation] → conversations table
+        ↓
+[Insert Message] → messages table
+        ↓
+[Bridge to Kommo ChatAPI]
+  - Send via kommo-chatapi-client
+  - Create message ID mapping (WhatsApp ID ↔ Kommo ID)
         ↓
 [Mark Processed]
   - Update webhook_raw_log (status: processed)

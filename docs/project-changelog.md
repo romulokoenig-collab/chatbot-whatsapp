@@ -110,7 +110,157 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [1.0.1] - 2026-03-11
+
+**Status:** Released (Integration Test Complete)
+
+### Added
+- Webhook registered in Kommo production via UI (bypasses API DNS validation)
+- Events: "Mensagem recebida" + "Nota adicionada ao lead"
+- 17 real WhatsApp incoming messages captured and processed successfully
+
+### Tested
+- **Incoming messages (customer→agent): PASS** — All captured with correct direction, sender_type, text_content
+- **Outgoing messages (agent→customer): FAIL** — Kommo does NOT send webhooks for agent replies
+- **Decision: Phase B (standard webhooks) insufficient** — Phase A (ChatAPI) required for bidirectional capture
+
+### Known Limitations
+- Only incoming messages captured via standard Kommo webhooks
+- Outgoing message capture requires ChatAPI custom channel integration (Phase A)
+
+---
+
+## [1.1.0-phase-a] - 2026-03-10
+
+**Status:** Phase A Implementation Complete (Bidirectional Bridge)
+
+### Added (Phase A)
+
+#### Webhook Integration (ChatAPI + WhatsApp Cloud API)
+- Kommo ChatAPI custom channel webhook handler (`POST /webhooks/chatapi/:scopeId`)
+  - HMAC-SHA1 signature verification using `KOMMO_CHANNEL_SECRET`
+  - Processes outgoing messages from Kommo agents
+  - Forwards to WhatsApp Cloud API
+- WhatsApp Cloud API webhook handler (`GET+POST /webhooks/whatsapp`)
+  - X-Hub-Signature verification using `WHATSAPP_APP_SECRET`
+  - GET for Meta's webhook verification challenge
+  - POST for incoming customer messages from WhatsApp
+  - Forwards to Kommo ChatAPI
+
+#### Message Bridging Infrastructure
+- Bidirectional message forwarding service (`message-bridge-service.ts`)
+  - `bridgeWhatsAppToKommo()` — Route incoming WhatsApp → Kommo ChatAPI
+  - `bridgeKommoToWhatsApp()` — Route outgoing Kommo → WhatsApp Cloud API
+- Message ID mapping service (`message-mapping-service.ts`)
+  - Stores correspondence between WhatsApp message IDs and Kommo message IDs
+  - Enables two-way message tracking for audit and reconciliation
+
+#### External API Clients
+- Kommo ChatAPI HTTP client (`kommo-chatapi-client.ts`)
+  - `sendMessageToKommo()` — POST to ChatAPI with message data
+  - Supports text and media attachments
+  - Returns Kommo message ID for mapping
+- WhatsApp Cloud API HTTP client (`whatsapp-api-client.ts`)
+  - `sendTextToWhatsApp()` — Send text messages
+  - `sendMediaToWhatsApp()` — Send images, videos, documents
+  - Integrates with Graph API
+  - Returns WhatsApp message ID for mapping
+
+#### Signature Verification Utilities
+- HMAC signature utilities (`hmac-signature.ts`)
+  - `verifyHmacSha1()` — Kommo ChatAPI verification
+  - `verifyHmacSha256()` — WhatsApp Cloud API verification
+  - Timing-safe comparison prevents signature spoofing
+
+#### Type Definitions
+- Kommo ChatAPI webhook types (`chatapi-webhook-types.ts`)
+  - `ChatApiWebhookPayload`, `ChatApiMessage`, `ChatApiFile`
+- WhatsApp webhook types (`whatsapp-webhook-types.ts`)
+  - `WhatsAppWebhookPayload`, `WhatsAppMessage`, `WhatsAppMedia`
+
+#### Database
+- New `message_id_mapping` table (migration `005-create-message-id-mapping.sql`)
+  - Tracks `(whatsapp_message_id, kommo_message_id, kommo_conversation_id)`
+  - Unique indexes on both message ID types
+  - Enables bi-directional ID lookup
+
+#### Environment Configuration
+- 8 new optional environment variables (all Phase A related)
+  - Kommo: `KOMMO_CHANNEL_ID`, `KOMMO_CHANNEL_SECRET`, `KOMMO_SCOPE_ID`, `KOMMO_AMOJO_ID`
+  - WhatsApp: `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`
+
+### Architecture Changes
+
+**Message Flow (Phase A):**
+```
+┌─ WhatsApp Cloud API ─┐
+│  (customer messages) │
+└──────────┬───────────┘
+           ↓
+    GET /webhooks/whatsapp (verify)
+    POST /webhooks/whatsapp (incoming)
+           ↓
+   ┌───────────────────┐
+   │ Our Backend Server│
+   │ ├─ Parse message  │
+   │ ├─ Store in DB    │
+   │ └─ Bridge to      │
+   │    Kommo ChatAPI  │
+   └────────┬──────────┘
+            ↓
+┌──── Kommo ChatAPI ────┐
+│ (agent sees message)  │
+└──────────┬────────────┘
+           ↓
+  Agent sends reply
+  (outgoing message)
+           ↓
+POST /webhooks/chatapi/:scopeId
+           ↓
+   ┌───────────────────┐
+   │ Our Backend Server│
+   │ ├─ Parse message  │
+   │ ├─ Store in DB    │
+   │ └─ Bridge to      │
+   │    WhatsApp       │
+   └────────┬──────────┘
+            ↓
+┌─ WhatsApp Cloud API ─┐
+│ (customer receives) │
+└──────────────────────┘
+```
+
+**New Webhook Endpoints:**
+- Public: `POST /webhooks/chatapi/:scopeId` — Kommo ChatAPI (HMAC-SHA1 protected)
+- Public: `GET /webhooks/whatsapp` — WhatsApp verification challenge
+- Public: `POST /webhooks/whatsapp` — WhatsApp incoming messages (X-Hub-Signature protected)
+
+### Security (Phase A)
+
+- HMAC-SHA1 signature verification for Kommo ChatAPI integration
+- X-Hub-Signature verification for WhatsApp Cloud API integration
+- Timing-safe comparison for all signature checks (prevents timing attacks)
+- Secret keys loaded from environment, never hardcoded
+- Webhook endpoints reject unsigned/invalid requests
+
+### Performance (Phase A)
+
+- Async message forwarding (respond to webhook immediately, bridge after)
+- Efficient ID mapping lookup (indexed by both message ID types)
+- No additional database round-trips for message forwarding
+
+### Testing (Phase A)
+
+- Unit tests for signature verification utilities
+- Tests for message bridge service
+- Tests for HTTP client error handling
+
 ## [Unreleased]
+
+### Planned Features (Phase 2+)
+- Structured logging for better observability
+- Performance monitoring and metrics
+- Webhook retry logic with exponential backoff
 
 ### Planned Features (Phase 2)
 
@@ -161,7 +311,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 | Version | Release Date | Status | Phase |
 |---------|--------------|--------|-------|
-| 1.0.0 | 2026-03-10 | Released | MVP - Complete |
+| 1.0.0 | 2026-03-10 | Released | MVP - Standard Webhooks Only |
+| 1.1.0-phase-a | 2026-03-10 | Released | Phase A - Bidirectional Bridge |
 | 1.1.0 | Planned: 2026-04-15 | Backlog | Phase 2 - Enhancements |
 | 1.2.0 | Planned: 2026-05-15 | Backlog | Phase 3 - Advanced Filtering |
 | 2.0.0 | Planned: 2026-07-01 | Backlog | Phase 4 - Analytics |
@@ -269,6 +420,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 |------|---------|---------|
 | 2026-03-10 | 1.0 | Created initial changelog after MVP completion |
 | 2026-03-10 | 1.1 | Updated with production deployment confirmation |
+| 2026-03-11 | 1.2 | Phase 6 integration test results: incoming PASS, outgoing FAIL → Phase A needed |
+| 2026-03-10 | 1.3 | Phase A implementation complete: bidirectional bridge, ChatAPI + WhatsApp Cloud API |
 
 ---
 

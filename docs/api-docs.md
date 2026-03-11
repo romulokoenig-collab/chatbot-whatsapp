@@ -17,7 +17,10 @@ curl -H "x-api-key: your-secret-api-key" \
 ```
 
 **Public Endpoints** (no auth required):
-- `POST /webhooks/kommo`
+- `POST /webhooks/kommo` — Kommo standard webhook (Phase B)
+- `POST /webhooks/chatapi/:scopeId` — Kommo ChatAPI webhook (Phase A)
+- `GET /webhooks/whatsapp` — WhatsApp webhook verification (Phase A)
+- `POST /webhooks/whatsapp` — WhatsApp incoming messages (Phase A)
 - `GET /health`
 
 ## Response Format
@@ -117,7 +120,170 @@ All responses are JSON:
 
 ---
 
-### 2. Health Check
+### 2. Webhook: Kommo ChatAPI Outgoing Message (Phase A)
+
+**Endpoint:** `POST /webhooks/chatapi/:scopeId`
+
+**Authentication:** HMAC-SHA1 signature in `X-Signature` header
+
+**Purpose:** Receive outgoing messages from Kommo ChatAPI custom channel and forward to WhatsApp.
+
+**Kommo ChatAPI Webhook Format:**
+```json
+{
+  "type": "message_add",
+  "payload": {
+    "message": {
+      "id": "msg_12345",
+      "chat_id": "chat_67890",
+      "text": "Hello customer!",
+      "created_at": 1678901234,
+      "files": [
+        {
+          "id": "file_001",
+          "type": "image",
+          "url": "https://kommo.s3.example.com/image.jpg"
+        }
+      ]
+    }
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true
+}
+```
+
+**Status Code:** `200 OK` (always, to prevent Kommo retries)
+
+**Security:**
+- Request must include `X-Signature` header with HMAC-SHA1 digest
+- Signature verified using `KOMMO_CHANNEL_SECRET`
+- Format: `X-Signature: <base64(HMAC-SHA1(raw_body, secret))>`
+
+**Processing:**
+1. Verify HMAC-SHA1 signature using raw request body
+2. Save raw payload to `webhook_raw_log` (write-ahead log)
+3. Respond 200 immediately
+4. Parse message asynchronously
+5. Upsert conversation record
+6. Insert message record
+7. Bridge to WhatsApp Cloud API (send message to customer)
+8. Create message ID mapping for tracking
+9. Mark webhook as `processed` or `error`
+
+**Payload Fields:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| type | string | Always "message_add" for new messages |
+| payload.message.id | string | Unique Kommo message ID |
+| payload.message.chat_id | string | Kommo chat/conversation ID |
+| payload.message.text | string | Message text content |
+| payload.message.created_at | number | Unix timestamp (seconds) |
+| payload.message.files | array | Array of attachments (optional) |
+| files[].id | string | File ID |
+| files[].type | string | "image", "video", "file", "voice", etc. |
+| files[].url | string | URL to download file |
+
+---
+
+### 3. Webhook: WhatsApp Cloud API Incoming Message (Phase A)
+
+**Endpoint:** `GET /webhooks/whatsapp` (verification) | `POST /webhooks/whatsapp` (message)
+
+**Authentication:** Meta's webhook verification token + X-Hub-Signature for POST
+
+**Purpose:** Receive incoming messages from WhatsApp and forward to Kommo ChatAPI.
+
+**Meta Webhook Verification (GET):**
+```bash
+GET /webhooks/whatsapp?hub.mode=subscribe&hub.challenge=CHALLENGE_VALUE&hub.verify_token=TOKEN
+```
+
+**Response:**
+```
+CHALLENGE_VALUE
+```
+
+**Status Code:** `200 OK` | `403 Forbidden`
+
+**Meta Webhook Message Format (POST):**
+```json
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WABA_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "1234567890",
+              "phone_number_id": "PHONE_NUMBER_ID"
+            },
+            "messages": [
+              {
+                "from": "1234567890",
+                "id": "wamid.XXXXXXXX",
+                "timestamp": "1678901234",
+                "type": "text",
+                "text": {
+                  "body": "Hello!"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true
+}
+```
+
+**Status Code:** `200 OK` (always, to prevent Meta retries)
+
+**Security:**
+- GET request must include valid `hub.verify_token` (matches `WHATSAPP_VERIFY_TOKEN`)
+- POST request must include `X-Hub-Signature` header
+- Signature verified using `WHATSAPP_APP_SECRET`
+- Format: `X-Hub-Signature: sha256=<hex(HMAC-SHA256(raw_body, secret))>`
+
+**Processing:**
+1. Verify X-Hub-Signature using raw request body
+2. Save raw payload to `webhook_raw_log` (write-ahead log)
+3. Respond 200 immediately
+4. Parse message asynchronously
+5. Upsert conversation record
+6. Insert message record
+7. Bridge to Kommo ChatAPI (forward to agent)
+8. Create message ID mapping for tracking
+9. Mark webhook as `processed` or `error`
+
+**Message Types Supported:**
+- `text` — Plain text message
+- `image` — Photo/image file
+- `video` — Video file
+- `document` — Document or other file
+- `audio` — Audio message
+- `location` — Geographic coordinates
+- `reaction` — Emoji reaction to message
+- `sticker` — WhatsApp sticker
+
+---
+
+### 4. Health Check
 
 **Endpoint:** `GET /health`
 
@@ -138,7 +304,7 @@ All responses are JSON:
 
 ---
 
-### 3. List Conversations
+### 5. List Conversations
 
 **Endpoint:** `GET /api/conversations`
 
@@ -188,7 +354,7 @@ curl -H "x-api-key: secret-key" \
 
 ---
 
-### 4. Get Conversation Message History
+### 6. Get Conversation Message History
 
 **Endpoint:** `GET /api/conversations/:id/messages`
 
@@ -251,7 +417,7 @@ curl -H "x-api-key: secret-key" \
 
 ---
 
-### 5. Get Lead Response Status
+### 7. Get Lead Response Status
 
 **Endpoint:** `GET /api/leads/:kommoLeadId/status`
 
@@ -294,7 +460,7 @@ curl -H "x-api-key: secret-key" \
 
 ---
 
-### 6. Get Unresponded Leads (No Response Trigger)
+### 8. Get Unresponded Leads (No Response Trigger)
 
 **Endpoint:** `GET /api/triggers/no-response`
 
@@ -350,7 +516,7 @@ curl -H "x-api-key: secret-key" \
 
 ---
 
-### 7. Get Unfollowed Leads (No Follow-up Trigger)
+### 9. Get Unfollowed Leads (No Follow-up Trigger)
 
 **Endpoint:** `GET /api/triggers/no-followup`
 

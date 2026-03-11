@@ -1,8 +1,8 @@
 # Codebase Summary - Kommo WhatsApp Monitoring Backend
 
 **Last Updated:** 2026-03-10
-**Version:** 1.0.0 (Production)
-**Status:** MVP Complete & Deployed
+**Version:** 1.0.0 + Phase A (Bidirectional Bridge)
+**Status:** MVP Complete & Phase A Implementation
 
 ## Project Overview
 
@@ -20,7 +20,7 @@ A Node.js/TypeScript backend service that captures WhatsApp messages flowing thr
 │   │   ├── health-routes.ts          # GET /health check endpoint
 │   │   └── trigger-routes.ts         # GET triggers (no-response, no-followup)
 │   ├── config/
-│   │   ├── environment-config.ts     # Zod schema for env vars
+│   │   ├── environment-config.ts     # Zod schema for env vars (Phase A additions)
 │   │   └── supabase-client.ts        # Singleton Supabase connection
 │   ├── middleware/
 │   │   ├── api-auth-middleware.ts    # x-api-key validation (timing-safe)
@@ -28,29 +28,40 @@ A Node.js/TypeScript backend service that captures WhatsApp messages flowing thr
 │   ├── services/
 │   │   ├── conversation-service.ts   # Upsert/query conversations
 │   │   ├── message-service.ts        # Insert/query messages
-│   │   └── trigger-service.ts        # Query unresponded/unfollowed leads
+│   │   ├── trigger-service.ts        # Query unresponded/unfollowed leads
+│   │   ├── kommo-chatapi-client.ts   # Kommo ChatAPI HTTP client (Phase A)
+│   │   ├── whatsapp-api-client.ts    # WhatsApp Cloud API HTTP client (Phase A)
+│   │   ├── message-bridge-service.ts # Bidirectional message forwarding (Phase A)
+│   │   └── message-mapping-service.ts # WhatsApp ↔ Kommo ID tracking (Phase A)
 │   ├── types/
-│   │   ├── database-types.ts         # TypeScript interfaces for DB
-│   │   └── kommo-webhook-types.ts    # Kommo webhook payload types
+│   │   ├── database-types.ts         # TypeScript interfaces for DB (MessageIdMapping added)
+│   │   ├── kommo-webhook-types.ts    # Kommo webhook payload types
+│   │   ├── chatapi-webhook-types.ts  # Kommo ChatAPI webhook payloads (Phase A)
+│   │   └── whatsapp-webhook-types.ts # WhatsApp Cloud API payloads (Phase A)
+│   ├── utils/
+│   │   └── hmac-signature.ts         # HMAC-SHA1/SHA256 signature utilities (Phase A)
 │   ├── webhooks/
-│   │   ├── kommo-standard-handler.ts # Main webhook receiver
-│   │   └── webhook-raw-logger.ts     # Write-ahead log
+│   │   ├── kommo-standard-handler.ts # Phase B standard webhook receiver
+│   │   ├── chatapi-webhook-handler.ts # Phase A: Kommo ChatAPI webhook handler
+│   │   ├── whatsapp-webhook-handler.ts # Phase A: WhatsApp Cloud API webhook handler
+│   │   └── webhook-raw-logger.ts     # Write-ahead log (used by all webhooks)
 │   ├── __tests__/
 │   │   ├── api-auth-middleware.test.ts
 │   │   ├── kommo-payload-parser.test.ts
 │   │   └── trigger-routes.test.ts
-│   ├── app.ts                        # Express app setup (middleware, routes)
+│   ├── app.ts                        # Express app setup (middleware, routes, Phase A routes added)
 │   └── server.ts                     # Entry point (load env, start server)
 ├── supabase/
 │   └── migrations/
 │       ├── 001-create-enums.sql      # Enum types
 │       ├── 002-create-conversations.sql
 │       ├── 003-create-messages.sql
-│       └── 004-create-webhook-raw-log.sql
+│       ├── 004-create-webhook-raw-log.sql
+│       └── 005-create-message-id-mapping.sql # Phase A message ID tracking table
 ├── Dockerfile                        # Multi-stage production build
 ├── package.json                      # Dependencies & scripts
 ├── tsconfig.json                     # TypeScript config
-├── .env.example                      # Environment template
+├── .env.example                      # Environment template (Phase A vars added)
 └── README.md                         # Quick start guide
 ```
 
@@ -94,6 +105,11 @@ A Node.js/TypeScript backend service that captures WhatsApp messages flowing thr
 | `messages` | Individual messages | id, conversation_id, kommo_message_id (unique), direction, sender_type, content_type, text_content, media_url |
 | `webhook_raw_log` | Audit trail | id, source, event_type, status, payload, error_message |
 
+**Tables (Phase A Additions):**
+- `message_id_mapping` — Track bidirectional message ID correspondence
+  - Columns: id, whatsapp_message_id, kommo_message_id, kommo_conversation_id, created_at
+  - Indexes: whatsapp_message_id (unique), kommo_message_id (unique), kommo_conversation_id
+
 **Enums:**
 - `conversation_status`: active, closed
 - `message_direction`: incoming, outgoing
@@ -116,11 +132,36 @@ A Node.js/TypeScript backend service that captures WhatsApp messages flowing thr
 - `getUnrespondedLeads(hours)` — Find conversations where agent hasn't responded
 - `getUnfollowedLeads(hours)` — Find conversations where customer hasn't replied
 
+**KommoChatapiClient (Phase A):**
+- `sendMessageToKommo(params)` — Forward WhatsApp message to Kommo ChatAPI custom channel
+- Accepts: conversationId, senderId, senderName, messageType, text, mediaUrl
+- Returns: { kommoMessageId, status }
+
+**WhatsappApiClient (Phase A):**
+- `sendTextToWhatsApp(number, text)` — Send text message via WhatsApp Cloud API
+- `sendMediaToWhatsApp(number, mediaType, mediaUrl, caption)` — Send media message
+- Returns: { id, status }
+
+**MessageBridgeService (Phase A):**
+- `bridgeWhatsAppToKommo(normalized, rawWhatsApp)` — Forward incoming WhatsApp → Kommo
+- `bridgeKommoToWhatsApp(normalized, rawKommo)` — Forward outgoing Kommo → WhatsApp
+- Creates message ID mappings for tracking
+
+**MessageMappingService (Phase A):**
+- `createMapping(data)` — Store WhatsApp ↔ Kommo message ID relationship
+- `getMapping(whatsappId)` — Lookup Kommo ID from WhatsApp ID
+- `getMappingByKommoId(kommoId)` — Lookup WhatsApp ID from Kommo ID
+
 ### 6. API Endpoints
 
-**Public:**
-- `POST /webhooks/kommo` — Receive Kommo standard webhooks
+**Public (Phase B - Standard Webhooks):**
+- `POST /webhooks/kommo` — Receive Kommo standard webhooks (incoming only)
 - `GET /health` — Server health check
+
+**Public (Phase A - Bidirectional Bridge):**
+- `POST /webhooks/chatapi/:scopeId` — Kommo ChatAPI webhook (HMAC-SHA1 protected)
+- `GET /webhooks/whatsapp` — WhatsApp webhook verification (token challenge)
+- `POST /webhooks/whatsapp` — WhatsApp incoming messages (X-Hub-Signature protected)
 
 **Protected (require x-api-key):**
 - `GET /api/conversations` — List conversations with filters
@@ -250,6 +291,14 @@ docker run --env-file .env -p 3000:3000 kommo-monitor:latest
 | SUPABASE_ANON_KEY | string | Yes | eyJx... |
 | SUPABASE_SERVICE_ROLE_KEY | string | Yes | eyJx... |
 | API_KEY | string | Yes | your-secret-key |
+| KOMMO_CHANNEL_ID | string | No (Phase A) | kommo-chatapi-channel-id |
+| KOMMO_CHANNEL_SECRET | string | No (Phase A) | kommo-channel-secret-for-hmac |
+| KOMMO_SCOPE_ID | string | No (Phase A) | kommo-account-scope-id |
+| KOMMO_AMOJO_ID | string | No (Phase A) | kommo-amojo-id |
+| WHATSAPP_ACCESS_TOKEN | string | No (Phase A) | EAAY... |
+| WHATSAPP_PHONE_NUMBER_ID | string | No (Phase A) | 1234567890 |
+| WHATSAPP_VERIFY_TOKEN | string | No (Phase A) | webhook-verify-token |
+| WHATSAPP_APP_SECRET | string | No (Phase A) | app-secret-for-signature |
 
 ## Common Tasks
 
@@ -277,6 +326,35 @@ supabase db push
 
 # Or manually: Copy migration content to Supabase SQL editor
 ```
+
+## Phase A: Bidirectional Message Bridge (Complete)
+
+**Completed Features:**
+- Kommo ChatAPI webhook handler (`POST /webhooks/chatapi/:scopeId`)
+- WhatsApp Cloud API webhook handler (`GET+POST /webhooks/whatsapp`)
+- HMAC-SHA1 signature verification for Kommo security
+- X-Hub-Signature verification for WhatsApp security
+- Bidirectional message forwarding (Kommo → WhatsApp, WhatsApp → Kommo)
+- Message ID mapping table for tracking correspondence
+- All Phase A types, utilities, and services implemented
+
+**New Files Created:**
+- `src/utils/hmac-signature.ts` — HMAC-SHA1/SHA256 utilities
+- `src/types/chatapi-webhook-types.ts` — Kommo ChatAPI types
+- `src/types/whatsapp-webhook-types.ts` — WhatsApp Cloud API types
+- `src/webhooks/chatapi-webhook-handler.ts` — Kommo handler
+- `src/webhooks/whatsapp-webhook-handler.ts` — WhatsApp handler
+- `src/services/kommo-chatapi-client.ts` — Kommo API client
+- `src/services/whatsapp-api-client.ts` — WhatsApp API client
+- `src/services/message-bridge-service.ts` — Bidirectional bridge logic
+- `src/services/message-mapping-service.ts` — ID mapping service
+- `supabase/migrations/005-create-message-id-mapping.sql` — New table
+
+**Updated Files:**
+- `src/config/environment-config.ts` — Added 8 Phase A env vars
+- `src/types/database-types.ts` — Added MessageIdMapping interface
+- `src/app.ts` — Registered new webhook routes
+- `.env.example` — Added Phase A variables
 
 ## Next Steps (Phase 2)
 

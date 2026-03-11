@@ -2,19 +2,21 @@
 
 ## Project Status Overview
 
-**Current Version:** 1.0.0
+**Current Version:** 1.1.0-phase-a
 **Last Updated:** 2026-03-10
-**Project Phase:** MVP Complete → Production Deployment
+**Project Phase:** Phase A Complete → Phase 2 Planning
 
 ### Key Metrics
 
 | Metric | Value | Status |
 |--------|-------|--------|
 | Core API Endpoints | 7 | Complete |
-| Database Tables | 4 | Complete |
+| Phase A Webhook Endpoints | 3 | Complete |
+| Database Tables | 5 | Complete |
+| Message Forwarding Paths | 2 (bidirectional) | Complete |
 | Test Coverage | 60% | In Progress |
 | Docker Support | Yes | Complete |
-| Documentation | 90% | Complete |
+| Documentation | 95% | Complete |
 
 ---
 
@@ -66,10 +68,79 @@
 
 ---
 
+## Phase A: Bidirectional WhatsApp Bridge (Complete)
+
+**Status:** COMPLETE ✓
+**Timeline:** 2026-03-10
+**Description:** Implement bidirectional message bridge between Kommo ChatAPI and WhatsApp Cloud API
+
+### Deliverables
+
+- [x] Kommo ChatAPI webhook handler (`POST /webhooks/chatapi/:scopeId`)
+- [x] WhatsApp Cloud API webhook handler (`GET+POST /webhooks/whatsapp`)
+- [x] HMAC-SHA1 signature verification (Kommo)
+- [x] X-Hub-Signature verification (WhatsApp)
+- [x] Message forwarding: Kommo → WhatsApp
+- [x] Message forwarding: WhatsApp → Kommo
+- [x] Message ID mapping service
+- [x] Kommo ChatAPI HTTP client
+- [x] WhatsApp Cloud API HTTP client
+- [x] Type definitions for both APIs
+- [x] Database migration (message_id_mapping table)
+- [x] Environment variables for both platforms
+- [x] Integration with existing webhook logger
+
+### Key Features
+
+1. **Kommo ChatAPI Integration**
+   - Receives outgoing messages from custom WhatsApp channel
+   - HMAC-SHA1 signature verification using channel secret
+   - Forwards to WhatsApp Cloud API
+   - Stores message ID mapping for tracking
+
+2. **WhatsApp Cloud API Integration**
+   - Receives incoming messages from customers
+   - X-Hub-Signature verification using app secret
+   - Webhook challenge verification for Meta setup
+   - Forwards to Kommo ChatAPI
+   - Stores message ID mapping for tracking
+
+3. **Bidirectional Bridging**
+   - Kommo ChatAPI outgoing → WhatsApp incoming channel
+   - WhatsApp incoming → Kommo ChatAPI custom channel
+   - Full message persistence in database
+   - Message ID correspondence tracking
+
+### Architecture
+
+```
+WhatsApp Customer
+      ↓
+WhatsApp Cloud API
+      ↓
+POST /webhooks/whatsapp
+      ↓
+[Parse + Store + Bridge]
+      ↓
+Kommo ChatAPI (agent sees message)
+      ↓
+Agent replies via ChatAPI
+      ↓
+POST /webhooks/chatapi/:scopeId
+      ↓
+[Parse + Store + Bridge]
+      ↓
+WhatsApp Cloud API
+      ↓
+WhatsApp Customer (receives reply)
+```
+
+---
+
 ## Phase 2: Optimization & Monitoring (Next)
 
 **Status:** PLANNED
-**Timeline:** 2026-03-20 → 2026-04-15
+**Timeline:** 2026-04-01 → 2026-04-30
 **Priority:** HIGH
 
 ### Goals
@@ -271,23 +342,29 @@
 
 ## Release Plan
 
-### Version 1.0.0 (Current)
+### Version 1.0.0 (Released)
 - Date: 2026-03-10
-- Status: Released to Production
+- Status: Production
 - Features: Core webhook ingestion, REST API, audit logging, Docker deployment
 - Live: https://inicial-kommo-monitor.e8cf0x.easypanel.host
 
-### Version 1.1.0 (Next Sprint)
-- ETA: 2026-04-15
+### Version 1.1.0-phase-a (Released)
+- Date: 2026-03-10
+- Status: Production
+- Features: Bidirectional ChatAPI + WhatsApp Cloud API bridge
+- Breaking Changes: None
+
+### Version 1.1.0 (Phase 2)
+- ETA: 2026-04-30
 - Features: Structured logging, performance monitoring, webhook retry logic
 - Breaking Changes: None
 
-### Version 1.2.0 (Q2 2026)
+### Version 1.2.0 (Phase 3)
 - ETA: 2026-05-15
 - Features: Enhanced filtering, sorting, cursor pagination, composite indexes
 - Breaking Changes: May adjust query parameter names
 
-### Version 2.0.0 (Q3 2026)
+### Version 2.0.0 (Phase 4)
 - ETA: 2026-07-01
 - Features: Analytics endpoints, sentiment analysis, rate limiting
 - Breaking Changes: New response format for some endpoints
@@ -336,6 +413,7 @@ By end of Phase 3 (April 2024):
 |------|---------|---------|
 | 2026-03-10 | 1.0 | Initial roadmap created after MVP completion |
 | 2026-03-10 | 1.1 | Updated with production deployment to EasyPanel |
+| 2026-03-10 | 1.2 | Phase A (bidirectional bridge) completed, timelines adjusted |
 
 ---
 

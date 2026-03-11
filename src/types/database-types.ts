@@ -46,3 +46,17 @@ export interface WebhookRawLog {
   error_message: string | null;
   created_at: string;
 }
+
+/** message_id_mapping table row — tracks WhatsApp ↔ Kommo ID correlations */
+export type DeliveryStatus = "sent" | "delivered" | "read" | "failed";
+
+export interface MessageIdMapping {
+  id: string;
+  message_id: string | null;
+  whatsapp_message_id: string | null;
+  kommo_message_id: string | null;
+  kommo_conversation_id: string | null;
+  delivery_status: DeliveryStatus;
+  created_at: string;
+  updated_at: string;
+}
