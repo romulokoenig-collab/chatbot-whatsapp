@@ -380,10 +380,10 @@ POST /webhooks/chatapi/:scopeId
 
 ### Dependency Security Notes
 
-- No known CVEs in current dependencies (as of 2024-03-10)
+- No known CVEs in current dependencies (as of 2026-03-11)
 - Recommend: Check for updates monthly
 - Supabase JS updates: Pull at least quarterly for security patches
-- Node.js: Plan upgrade to Node 21+ by Q3 2024
+- Node.js: Currently on Node 20, plan upgrade to Node 22+ by Q4 2026
 
 ---
 
@@ -391,7 +391,7 @@ POST /webhooks/chatapi/:scopeId
 
 ### 1.0.0 Release Notes
 
-**Date:** March 10, 2024
+**Date:** March 10, 2026
 **Type:** Initial Release
 
 **What's New:**

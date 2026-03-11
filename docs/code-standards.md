@@ -9,18 +9,28 @@ src/
 ├── server.ts                    # Entry point (starts app)
 ├── app.ts                       # Express app setup
 ├── config/
-│   ├── environment-config.ts    # Zod schema, env validation
+│   ├── environment-config.ts    # Zod schema, env validation (Phase B + A vars)
 │   └── supabase-client.ts       # Supabase instance
 ├── types/
 │   ├── database-types.ts        # Database enums and types
-│   └── kommo-webhook-types.ts   # Kommo payload types
+│   ├── kommo-webhook-types.ts   # Kommo standard webhook payload types
+│   ├── chatapi-webhook-types.ts # Phase A: Kommo ChatAPI webhook types
+│   └── whatsapp-webhook-types.ts # Phase A: WhatsApp Cloud API types
+├── utils/
+│   └── hmac-signature.ts        # HMAC-SHA1 & SHA256 signature verification
 ├── webhooks/
-│   ├── kommo-standard-handler.ts # Webhook entry, parsing, routing
-│   └── webhook-raw-logger.ts    # Write-ahead log service
+│   ├── kommo-standard-handler.ts # Phase B: Kommo standard webhook handler
+│   ├── chatapi-webhook-handler.ts # Phase A: Kommo ChatAPI webhook handler
+│   ├── whatsapp-webhook-handler.ts # Phase A: WhatsApp Cloud API handler
+│   └── webhook-raw-logger.ts    # Write-ahead log service (all phases)
 ├── services/
 │   ├── conversation-service.ts  # Upsert, query conversations
 │   ├── message-service.ts       # Insert, query messages
-│   └── trigger-service.ts       # Automation triggers
+│   ├── trigger-service.ts       # Automation triggers (no-response, no-followup)
+│   ├── message-bridge-service.ts # Phase A: Bidirectional message forwarding
+│   ├── message-mapping-service.ts # Phase A: Message ID correlation tracking
+│   ├── kommo-chatapi-client.ts  # Phase A: Kommo ChatAPI HTTP client
+│   └── whatsapp-api-client.ts   # Phase A: WhatsApp Cloud API HTTP client
 ├── api/
 │   ├── conversation-routes.ts   # GET /api/conversations*
 │   ├── trigger-routes.ts        # GET /api/triggers/*
@@ -184,6 +194,49 @@ if (!safeCompare(apiKey, env.API_KEY)) {
 
 **Why:** Prevents timing attacks that leak key information.
 
+### HMAC Signature Verification (Phase A)
+
+For webhook signature validation (Kommo ChatAPI and WhatsApp):
+
+```typescript
+import { createHmac } from "node:crypto";
+
+// HMAC-SHA1 (Kommo ChatAPI)
+function verifyKommoSignature(rawBody: string, signature: string, secret: string): boolean {
+  const computed = createHmac("sha1", secret)
+    .update(rawBody)
+    .digest("base64");
+  return safeCompare(computed, signature);
+}
+
+// HMAC-SHA256 (WhatsApp)
+function verifyWhatsAppSignature(rawBody: string, signature: string, secret: string): boolean {
+  const computed = createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex");
+  const expected = `sha256=${computed}`;
+  return safeCompare(expected, signature);
+}
+
+// Usage in webhook handler
+export async function handleChatAPIWebhook(req: Request, res: Response) {
+  const signature = req.headers["x-signature"] as string;
+  const rawBody = req.body; // Must be raw string, not parsed JSON
+
+  if (!verifyKommoSignature(rawBody, signature, env.KOMMO_CHANNEL_SECRET)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  // Process webhook
+}
+```
+
+**Pattern:**
+- Always verify signature before processing
+- Use raw request body (not parsed JSON)
+- Store signatures in environment variables
+- Use timing-safe comparison
+
 ### Service Pattern
 
 Services encapsulate business logic:
@@ -206,6 +259,63 @@ export async function getConversations(filters: QueryFilters) {
 - Accept typed inputs
 - Return typed outputs
 - Handle database errors internally
+
+### HTTP Client Pattern (Phase A)
+
+For calling external APIs (Kommo ChatAPI, WhatsApp):
+
+```typescript
+// kommo-chatapi-client.ts
+import { fetch } from "node-fetch";
+
+export async function forwardMessageToKommo(message: KommoMessage): Promise<void> {
+  const response = await fetch(`${env.KOMMO_API_URL}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.KOMMO_ACCESS_TOKEN}`
+    },
+    body: JSON.stringify(message)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Kommo API error: ${response.status} ${response.statusText}`);
+  }
+}
+```
+
+**Pattern:**
+- Create dedicated client per external service
+- Validate environment variables exist
+- Use fetch (Node 18+) or axios
+- Handle HTTP errors with context
+- Don't expose raw API responses to callers
+
+### Message Mapping Service (Phase A)
+
+For tracking message IDs across systems:
+
+```typescript
+// message-mapping-service.ts
+export async function mapMessageIds(
+  kommoMessageId: string,
+  whatsappMessageId: string
+): Promise<void> {
+  // Insert or update mapping in database
+  // Allows tracking message flow bidirectionally
+}
+
+export async function getKommoMessageId(whatsappMessageId: string): Promise<string> {
+  // Lookup Kommo ID from WhatsApp ID
+  return kommoMessageId;
+}
+```
+
+**Pattern:**
+- Map message IDs when forwarding between systems
+- Create mappings before processing confirmation
+- Use for deduplication and tracking
+- Index on both ID types for fast lookup
 
 ### Middleware Pattern
 

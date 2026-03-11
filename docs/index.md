@@ -43,61 +43,68 @@ New to the project? Start here:
 
 ### System Documentation
 
-**[System Architecture](./system-architecture.md)** (395 lines)
+**[System Architecture](./system-architecture.md)** (363 lines)
 - Technology stack overview
-- 8-layer architecture breakdown
+- 8-layer architecture breakdown (Phase B + Phase A)
 - How data flows through the system
-- Webhook processing pipeline
-- Database schema (3 tables + 5 enums)
-- Security implementation
-- Performance targets
-- Deployment strategy (Docker, EasyPanel)
+- Webhook processing pipeline (3 paths: Kommo, ChatAPI, WhatsApp)
+- Database schema (5 tables + enums)
+- Security implementation (API auth + HMAC signatures)
+- Performance targets and deployment strategy
 - Error handling and observability
 
-**[API Documentation](./api-docs.md)** (478 lines)
-- All 7 API endpoints with full specs
-- Request/response examples
+**[API Documentation](./api-docs.md)** (748 lines)
+- All 9 API endpoints with full specs (Phase B + Phase A)
+  - Kommo standard webhooks
+  - Kommo ChatAPI webhooks + HMAC verification
+  - WhatsApp Cloud API webhooks + signature verification
+  - REST API endpoints
+- Request/response examples with real payloads
 - Query parameters and path variables
 - Error codes and error handling
 - Field reference (directions, types, content)
 - Example workflows (3 real-world scenarios)
 - Rate limiting guidelines
-- Webhook payload examples
+- Webhook timeout & performance specs
 
 ### Development Documentation
 
-**[Code Standards](./code-standards.md)** (424 lines)
-- Directory structure and file organization
-- File naming conventions
-- TypeScript configuration
+**[Code Standards](./code-standards.md)** (500+ lines)
+- Directory structure (Phase B + Phase A files)
+- File naming conventions (kebab-case)
+- TypeScript strict mode configuration
 - Naming conventions (camelCase, PascalCase, snake_case)
-- Database reference conventions
-- Code patterns (env config, error handling, services, routes)
-- Timing-safe comparisons for security
-- Type definitions
-- Testing standards (Vitest, Supertest)
-- Code review checklist (13 items)
-- Security checklist (8 items)
-- Performance checklist (7 items)
+- Database reference conventions (snake_case)
+- Code patterns:
+  - Environment configuration (Zod validation)
+  - Error handling with context logging
+  - Timing-safe comparisons for secrets
+  - HMAC signature verification (SHA1, SHA256)
+  - Service pattern (business logic)
+  - HTTP client pattern (external APIs)
+  - Message mapping service (bidirectional tracking)
+  - Middleware pattern
+  - Type definitions
+  - Route handlers
+  - Testing standards (Vitest, Supertest)
+- Checklists: code review, security, performance, documentation
 - Common pitfalls to avoid
 
-**[Development Roadmap](./development-roadmap.md)** (342 lines)
-- Project status overview (metrics table)
-- Phase 1 (MVP) — COMPLETE
-  - Core webhook ingestion ✓
-  - REST API ✓
-  - Database schema ✓
-  - Security ✓
-  - Docker support ✓
-  - Testing framework ✓
-- Phase 2 (Automation Triggers) — IN PROGRESS
-  - No-response endpoint
-  - No-followup endpoint
-  - Unit & integration tests
-- Phase 3 (Enhanced Filtering) — PLANNED
-  - Advanced query filters
-  - Cursor-based pagination
-  - Full-text search
+**[Development Roadmap](./development-roadmap.md)** (425+ lines)
+- Project status overview (key metrics)
+- Phase 1 (MVP) — COMPLETE ✓
+  - Core webhook ingestion
+  - REST API, database schema, security
+  - Docker support, testing framework
+- Phase A (Bidirectional Bridge) — COMPLETE ✓
+  - ChatAPI + WhatsApp webhook handlers
+  - HMAC-SHA1 & SHA256 signature verification
+  - Message forwarding (bidirectional)
+  - Message ID mapping service
+  - External API clients
+- Phase 2 (Future) — PLANNED
+  - Enhanced filtering and pagination
+  - Full-text search, performance optimizations
   - Database optimizations
 - Phase 4 (Reporting) — PLANNED
   - Analytics endpoints
