@@ -75,6 +75,13 @@
 **Description:** Implement bidirectional message bridge between Kommo ChatAPI and WhatsApp Cloud API
 **Blocker:** External API credentials (WhatsApp Business Account verification + Kommo custom channel setup)
 
+## Phase A2: WhatsApp Coexistence Monitoring (Code Complete)
+
+**Status:** CODE COMPLETE ✓ | PHASE 4 PENDING (Deploy & Configure)
+**Timeline:** Development completed 2026-03-11 | Awaiting Meta portal configuration
+**Description:** Add message_echoes support for outgoing message capture via WhatsApp Coexistence
+**Progress:** 3 of 4 phases complete (development, testing done; deployment pending)
+
 ### Deliverables
 
 - [x] Kommo ChatAPI webhook handler (`POST /webhooks/chatapi/:scopeId`)
@@ -355,6 +362,13 @@ WhatsApp Customer (receives reply)
 - Features: Bidirectional ChatAPI + WhatsApp Cloud API bridge
 - Breaking Changes: None
 
+### Version 1.1.0-phase-a2 (In Development)
+- Date: 2026-03-11
+- Status: Code Complete (Awaiting Deployment)
+- Features: WhatsApp Coexistence message_echoes support for outgoing messages, status mapping fallback
+- Tests: 66/66 passing (8 new tests for echo/message parsing + 3 for normalizePhone)
+- Breaking Changes: None
+
 ### Version 1.1.0 (Phase 2)
 - ETA: 2026-04-30
 - Features: Structured logging, performance monitoring, webhook retry logic
@@ -416,6 +430,7 @@ By end of Phase 3 (May 2026):
 | 2026-03-10 | 1.0 | Initial roadmap created after MVP completion |
 | 2026-03-10 | 1.1 | Updated with production deployment to EasyPanel |
 | 2026-03-10 | 1.2 | Phase A (bidirectional bridge) completed, timelines adjusted |
+| 2026-03-11 | 1.3 | Phase A2 (Coexistence message_echoes) code complete, 66/66 tests passing |
 
 ---
 

@@ -24,6 +24,7 @@ export interface WhatsAppChangeValue {
   contacts?: WhatsAppContact[];
   messages?: WhatsAppMessage[];
   statuses?: WhatsAppStatus[];
+  message_echoes?: WhatsAppMessageEcho[];
 }
 
 export interface WhatsAppContact {
@@ -51,6 +52,21 @@ export interface WhatsAppMedia {
   mime_type?: string;
   sha256?: string;
   caption?: string;
+}
+
+export interface WhatsAppMessageEcho {
+  from: string;       // Business phone number
+  to: string;         // Customer phone number
+  id: string;         // Message ID
+  timestamp: string;  // Unix timestamp (seconds)
+  type: string;       // text, image, video, etc.
+  text?: { body: string };
+  image?: WhatsAppMedia;
+  video?: WhatsAppMedia;
+  audio?: WhatsAppMedia;
+  document?: WhatsAppMedia & { filename?: string };
+  location?: { latitude: number; longitude: number; name?: string };
+  sticker?: WhatsAppMedia;
 }
 
 export interface WhatsAppStatus {

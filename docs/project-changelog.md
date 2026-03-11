@@ -130,6 +130,104 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [1.1.0-phase-a2] - 2026-03-11
+
+**Status:** Phase A2 Implementation Complete (WhatsApp Coexistence — Code Done, Awaiting Deployment)
+
+### Added (Phase A2)
+
+#### Message Echo Support
+- WhatsApp Coexistence `message_echoes` / `smb_message_echoes` webhook field support
+- Outgoing message capture directly from Meta webhooks (parallel to ChatAPI approach)
+- Echo processing loop in webhook handler alongside existing incoming message processing
+- Full bidirectional message flow: Coexistence (native) + ChatAPI (custom channel)
+
+#### Utilities
+- `normalizePhone()` utility for consistent phone number formatting
+  - Strips `+`, spaces, dashes from phone numbers
+  - Prevents duplicate conversations from format mismatches (e.g., `+5551...` vs `5551...`)
+
+#### Webhook Enhancements
+- `WhatsAppMessageEcho` type definition for echo payload structure
+- `parseWhatsAppEcho()` function for normalizing echo messages
+- Exported `parseWhatsAppMessage()` for testability
+- Echo conversation ID creation using normalized phone numbers
+- Message ID mapping creation for echo messages (enables status tracking)
+
+#### Status Mapping Fallback
+- Status webhook processing enhancement: check for existing mapping before creating
+- If no mapping exists, create mapping-only record (NOT ghost messages)
+- Handles out-of-order delivery: status arrives before echo
+- Prevents race condition where status creates skeletal record and echo gets deduped
+
+#### Security
+- `WHATSAPP_APP_SECRET` now required (was optional)
+- All webhook events protected via signature verification
+- Same SHA256 signature verification applies to all webhook types
+
+#### Testing
+- New test files:
+  - `src/__tests__/normalize-phone.test.ts` — 3 test cases
+  - `src/__tests__/whatsapp-echo-handler.test.ts` — 8 test cases
+- Total tests: 66/66 passing
+- New tests cover: text echoes, media echoes, null ID edge cases, timestamp fallback, phone normalization
+
+#### Database
+- No schema changes — uses existing `messages` and `message_id_mapping` tables
+- Outgoing messages stored in `messages` table with `direction=outgoing`
+- Echo message ID to Kommo conversation mapping in `message_id_mapping`
+
+### Architecture (Phase A2)
+
+**Message Flow (Coexistence + ChatAPI parallel):**
+```
+Path 1: Coexistence (native, direct from WhatsApp)
+  WhatsApp Customer
+    ↓
+  WhatsApp Cloud API (messages + echoes)
+    ↓
+  POST /webhooks/whatsapp
+    ↓
+  Parse echo → Store outgoing + Create mapping
+    ↓
+  messages table (direction=outgoing)
+
+Path 2: ChatAPI (custom channel via Kommo)
+  WhatsApp Customer
+    ↓
+  Kommo ChatAPI (agent app)
+    ↓
+  POST /webhooks/chatapi/:scopeId
+    ↓
+  Bridge to WhatsApp Cloud API
+    ↓
+  WhatsApp Cloud API → Customer
+```
+
+Both paths active simultaneously. Echo (Coexistence) is primary source of outgoing message content.
+
+### Testing Notes
+- No Supabase mocks — all tests are pure function tests
+- Tests use fixture data only
+- Echo parsing tested independently of database/webhooks
+- Phone normalization tested with various formats
+
+### Risk Mitigation
+- **Echo never arrives**: Mapping record exists but no message record — acceptable (no content-less records in timeline)
+- **Out-of-order events**: Handled by status check-then-create pattern
+- **Duplicate echoes**: Existing `ignoreDuplicates: true` on upsert
+- **Cast echo to WhatsAppMessage**: Safe because echo has same media sub-objects; graceful null returns if structure differs
+
+### Known Limitations (Phase 4)
+- Meta portal subscription not yet configured (`smb_message_echoes` field)
+- Phase 4 (Deploy & Configure) requires:
+  - Access to Meta Developers Portal
+  - Subscribe to `smb_message_echoes` webhook field
+  - Webhook URL registration in Meta portal
+  - Redeploy to production via EasyPanel
+
+---
+
 ## [1.1.0-phase-a] - 2026-03-10
 
 **Status:** Phase A Implementation Complete (Bidirectional Bridge)
@@ -313,6 +411,7 @@ POST /webhooks/chatapi/:scopeId
 |---------|--------------|--------|-------|
 | 1.0.0 | 2026-03-10 | Released | MVP - Standard Webhooks Only |
 | 1.1.0-phase-a | 2026-03-10 | Released | Phase A - Bidirectional Bridge |
+| 1.1.0-phase-a2 | 2026-03-11 | Code Complete (Pending Deployment) | Phase A2 - Coexistence Support |
 | 1.1.0 | Planned: 2026-04-15 | Backlog | Phase 2 - Enhancements |
 | 1.2.0 | Planned: 2026-05-15 | Backlog | Phase 3 - Advanced Filtering |
 | 2.0.0 | Planned: 2026-07-01 | Backlog | Phase 4 - Analytics |
@@ -422,6 +521,7 @@ POST /webhooks/chatapi/:scopeId
 | 2026-03-10 | 1.1 | Updated with production deployment confirmation |
 | 2026-03-11 | 1.2 | Phase 6 integration test results: incoming PASS, outgoing FAIL → Phase A needed |
 | 2026-03-10 | 1.3 | Phase A implementation complete: bidirectional bridge, ChatAPI + WhatsApp Cloud API |
+| 2026-03-11 | 1.4 | Phase A2 implementation complete: Coexistence message_echoes support, 66/66 tests passing |
 
 ---
 

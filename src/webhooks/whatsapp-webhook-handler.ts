@@ -7,9 +7,10 @@ import { logRawWebhook, markProcessed, markError } from "./webhook-raw-logger.js
 import { upsertConversation } from "../services/conversation-service.js";
 import { insertMessage } from "../services/message-service.js";
 import { bridgeWhatsAppToKommo } from "../services/message-bridge-service.js";
-import { updateDeliveryStatus } from "../services/message-mapping-service.js";
+import { updateDeliveryStatus, findByWhatsAppId, createMapping } from "../services/message-mapping-service.js";
+import { normalizePhone } from "../utils/normalize-phone.js";
 import type { NormalizedMessage } from "../types/kommo-webhook-types.js";
-import type { WhatsAppWebhookPayload, WhatsAppMessage } from "../types/whatsapp-webhook-types.js";
+import type { WhatsAppWebhookPayload, WhatsAppMessage, WhatsAppMessageEcho } from "../types/whatsapp-webhook-types.js";
 import type { ContentType } from "../types/database-types.js";
 
 export const whatsAppWebhookRouter = Router();
@@ -35,19 +36,16 @@ whatsAppWebhookRouter.get("/whatsapp", (req: Request, res: Response) => {
   res.status(403).send("Forbidden");
 });
 
-/** POST /webhooks/whatsapp — receive incoming messages from WhatsApp Cloud API */
+/** POST /webhooks/whatsapp — receive messages, statuses, and echoes from WhatsApp Cloud API */
 whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
-  // Verify signature if app secret is configured
-  if (env.WHATSAPP_APP_SECRET) {
-    const signature = req.headers["x-hub-signature-256"] as string | undefined;
-    const rawBody = (req as unknown as Record<string, unknown>).rawBody as string
-      ?? JSON.stringify(req.body);
+  // Verify signature (WHATSAPP_APP_SECRET is required)
+  const signature = req.headers["x-hub-signature-256"] as string | undefined;
+  const rawBody = (req as unknown as Record<string, unknown>).rawBody as string | undefined;
 
-    if (!signature || !verifyWhatsAppSignature(rawBody, env.WHATSAPP_APP_SECRET, signature)) {
-      console.warn("[WhatsApp] Invalid signature, rejecting webhook");
-      res.status(200).send(); // Silent reject
-      return;
-    }
+  if (!rawBody || !signature || !verifyWhatsAppSignature(rawBody, env.WHATSAPP_APP_SECRET, signature)) {
+    console.warn("[WhatsApp] Invalid signature or missing rawBody, rejecting webhook");
+    res.status(200).send(); // Silent reject (standard webhook practice)
+    return;
   }
 
   let logId: string | undefined;
@@ -73,12 +71,29 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
 
     for (const entry of payload.entry ?? []) {
       for (const change of entry.changes ?? []) {
-        if (change.field !== "messages") continue;
+        if (change.field !== "messages" && change.field !== "smb_message_echoes") continue;
         const value = change.value;
 
         // Handle delivery status updates
         for (const status of value.statuses ?? []) {
-          await updateDeliveryStatus(status.id, status.status);
+          try {
+            const existing = await findByWhatsAppId(status.id);
+
+            if (existing) {
+              await updateDeliveryStatus(status.id, status.status);
+            } else {
+              // No mapping — create one for future status tracking
+              // Do NOT create a message record (no content available from status)
+              const customerPhone = normalizePhone(status.recipient_id);
+              await createMapping({
+                whatsappMessageId: status.id,
+                kommoConversationId: `wa_${customerPhone}`,
+              });
+              await updateDeliveryStatus(status.id, status.status);
+            }
+          } catch (err) {
+            console.error(`[WhatsApp] Status processing error for ${status.id}:`, err);
+          }
         }
 
         // Handle incoming messages
@@ -90,7 +105,7 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
           if (!normalized) continue;
 
           const conversationId = await upsertConversation({
-            kommoChatId: `wa_${msg.from}`,
+            kommoChatId: `wa_${normalizePhone(msg.from)}`,
             contactId: null,
             leadId: null,
             direction: "incoming",
@@ -105,12 +120,41 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
             processedCount++;
           }
         }
+
+        // Handle message echoes (outgoing via Business App / Kommo)
+        for (const echo of value.message_echoes ?? []) {
+          try {
+            const normalized = parseWhatsAppEcho(echo);
+            if (!normalized) continue;
+
+            const customerPhone = normalizePhone(echo.to);
+            const conversationId = await upsertConversation({
+              kommoChatId: `wa_${customerPhone}`,
+              contactId: null,
+              leadId: null,
+              direction: "outgoing",
+              messageTimestamp: normalized.createdAt,
+            });
+
+            const inserted = await insertMessage(conversationId, normalized);
+            if (inserted) {
+              // Create mapping for status tracking (dedup: echo arrived first)
+              await createMapping({
+                whatsappMessageId: echo.id,
+                kommoConversationId: `wa_${customerPhone}`,
+              });
+              processedCount++;
+            }
+          } catch (err) {
+            console.error(`[WhatsApp] Echo processing error for ${echo.id}:`, err);
+          }
+        }
       }
     }
 
     if (logId) await markProcessed(logId);
     if (processedCount > 0) {
-      console.log(`[WhatsApp] Processed ${processedCount} incoming message(s)`);
+      console.log(`[WhatsApp] Processed ${processedCount} message(s)`);
     }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -119,8 +163,8 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
   }
 });
 
-/** Parse WhatsApp message into NormalizedMessage */
-function parseWhatsAppMessage(
+/** Parse WhatsApp incoming message into NormalizedMessage */
+export function parseWhatsAppMessage(
   msg: WhatsAppMessage,
   contactName: string | null,
   senderPhone: string | null
@@ -137,7 +181,7 @@ function parseWhatsAppMessage(
 
   return {
     kommoMessageId: msg.id,
-    kommoChatId: `wa_${msg.from}`,
+    kommoChatId: `wa_${normalizePhone(msg.from)}`,
     direction: "incoming",
     senderType: "customer",
     senderId: senderPhone ?? msg.from,
@@ -147,6 +191,37 @@ function parseWhatsAppMessage(
     contactId: null,
     leadId: null,
     rawPayload: msg as unknown as Record<string, unknown>,
+    createdAt: timestamp,
+  };
+}
+
+/** Parse WhatsApp echo (outgoing via Business App) into NormalizedMessage */
+export function parseWhatsAppEcho(echo: WhatsAppMessageEcho): NormalizedMessage | null {
+  if (!echo.id) return null;
+
+  const contentType = resolveContentType(echo.type);
+  // Echo has same media sub-object structure as WhatsAppMessage
+  const msgLike = echo as unknown as WhatsAppMessage;
+  const textContent = extractTextContent(msgLike);
+  const mediaUrl = extractMediaId(msgLike);
+
+  const customerPhone = normalizePhone(echo.to);
+  const timestamp = echo.timestamp
+    ? new Date(Number(echo.timestamp) * 1000).toISOString()
+    : new Date().toISOString();
+
+  return {
+    kommoMessageId: echo.id,
+    kommoChatId: `wa_${customerPhone}`,
+    direction: "outgoing",
+    senderType: "agent",
+    senderId: echo.from,
+    contentType,
+    textContent,
+    mediaUrl,
+    contactId: null,
+    leadId: null,
+    rawPayload: echo as unknown as Record<string, unknown>,
     createdAt: timestamp,
   };
 }

@@ -17,11 +17,11 @@ const envSchema = z.object({
   KOMMO_SCOPE_ID: z.string().optional(),
   KOMMO_AMOJO_ID: z.string().optional(),
 
-  // WhatsApp Cloud API (Phase A) — optional
+  // WhatsApp Cloud API (Coexistence mode)
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
-  WHATSAPP_APP_SECRET: z.string().optional(),
+  WHATSAPP_APP_SECRET: z.string().min(1, "WHATSAPP_APP_SECRET is required for webhook signature verification"),
 });
 
 const parsed = envSchema.safeParse(process.env);

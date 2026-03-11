@@ -19,6 +19,7 @@ beforeAll(() => {
   process.env.SUPABASE_ANON_KEY = "fake-anon-key";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "fake-service-role-key";
   process.env.API_KEY = "test-api-key";
+  process.env.WHATSAPP_APP_SECRET = "test-app-secret";
   process.env.NODE_ENV = "test";
 });
 
