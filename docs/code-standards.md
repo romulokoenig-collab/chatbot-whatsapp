@@ -9,19 +9,20 @@ src/
 ├── server.ts                    # Entry point (starts app)
 ├── app.ts                       # Express app setup
 ├── config/
-│   ├── environment-config.ts    # Zod schema, env validation (Phase B + A vars)
+│   ├── environment-config.ts    # Zod schema, env validation (Phase B + A + A2)
 │   └── supabase-client.ts       # Supabase instance
 ├── types/
 │   ├── database-types.ts        # Database enums and types
 │   ├── kommo-webhook-types.ts   # Kommo standard webhook payload types
 │   ├── chatapi-webhook-types.ts # Phase A: Kommo ChatAPI webhook types
-│   └── whatsapp-webhook-types.ts # Phase A: WhatsApp Cloud API types
+│   └── whatsapp-webhook-types.ts # Phase A + A2: WhatsApp Cloud API types
 ├── utils/
-│   └── hmac-signature.ts        # HMAC-SHA1 & SHA256 signature verification
+│   ├── hmac-signature.ts        # HMAC-SHA1 & SHA256 signature verification
+│   └── normalize-phone.ts       # Phase A2: Phone number normalization
 ├── webhooks/
 │   ├── kommo-standard-handler.ts # Phase B: Kommo standard webhook handler
 │   ├── chatapi-webhook-handler.ts # Phase A: Kommo ChatAPI webhook handler
-│   ├── whatsapp-webhook-handler.ts # Phase A: WhatsApp Cloud API handler
+│   ├── whatsapp-webhook-handler.ts # Phase A + A2: WhatsApp Cloud API handler with echo support
 │   └── webhook-raw-logger.ts    # Write-ahead log service (all phases)
 ├── services/
 │   ├── conversation-service.ts  # Upsert, query conversations
@@ -52,6 +53,7 @@ src/
   - Middleware: `{name}-middleware.ts`
   - Types: `{domain}-types.ts`
   - Config: `{aspect}-config.ts`
+  - Utilities: `{purpose}.ts` or `{purpose}-utility.ts`
 
 ### Size Limits
 
@@ -90,12 +92,14 @@ src/
   ```typescript
   const apiKey = process.env.API_KEY;
   function parseKommoPayload(body: Record<string, unknown>) { ... }
+  function normalizePhone(phone: string): string { ... }
   ```
 
 - **UPPER_SNAKE_CASE** for constants
   ```typescript
   const MAX_WEBHOOK_PAYLOAD_SIZE = 50000;
   const DEFAULT_HOURS = 24;
+  const PHONE_REGEX = /[\s\-+]/g;
   ```
 
 - **PascalCase** for types and interfaces
@@ -103,6 +107,7 @@ src/
   type NormalizedMessage = { ... };
   interface ConversationRow { ... };
   enum ConversationStatus { ... }
+  type WhatsAppMessageEcho = { ... };
   ```
 
 ### Database References
@@ -115,6 +120,7 @@ src/
 - **Match database case exactly in code comments**
   ```typescript
   // kommo_chat_id — maps to conversations.kommo_chat_id
+  // smb_message_echoes — WhatsApp message_echoes field
   ```
 
 ## Code Patterns
@@ -132,6 +138,7 @@ dotenv.config();
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   API_KEY: z.string().min(1),
+  WHATSAPP_APP_SECRET: z.string().min(1), // Phase A2: Now required
   // ...
 });
 
@@ -219,11 +226,11 @@ function verifyWhatsAppSignature(rawBody: string, signature: string, secret: str
 }
 
 // Usage in webhook handler
-export async function handleChatAPIWebhook(req: Request, res: Response) {
-  const signature = req.headers["x-signature"] as string;
+export async function handleWhatsAppWebhook(req: Request, res: Response) {
+  const signature = req.headers["x-hub-signature-256"] as string;
   const rawBody = req.body; // Must be raw string, not parsed JSON
 
-  if (!verifyKommoSignature(rawBody, signature, env.KOMMO_CHANNEL_SECRET)) {
+  if (!verifyWhatsAppSignature(rawBody, signature, env.WHATSAPP_APP_SECRET)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -236,6 +243,35 @@ export async function handleChatAPIWebhook(req: Request, res: Response) {
 - Use raw request body (not parsed JSON)
 - Store signatures in environment variables
 - Use timing-safe comparison
+
+### Phone Number Normalization (Phase A2)
+
+For consistent phone number formatting to prevent duplicate conversations:
+
+```typescript
+// utils/normalize-phone.ts
+export function normalizePhone(phone: string | null | undefined): string {
+  if (!phone) return "";
+  // Strip +, spaces, dashes, leading zeros
+  return phone
+    .replace(/^\+/, "")        // Strip leading +
+    .replace(/[\s\-]/g, "")    // Strip spaces/dashes
+    .replace(/^0+/, "");        // Strip leading zeros
+}
+
+// Usage in webhook handler
+export async function handleWhatsAppEcho(echo: WhatsAppMessageEcho) {
+  const normalizedPhone = normalizePhone(echo.message?.from);
+  const conversationId = `whatsapp-${normalizedPhone}`;
+  // Store message using normalized phone
+}
+```
+
+**Pattern:**
+- Normalize phone numbers consistently across all processing
+- Use in conversation ID generation to prevent duplicates
+- Handle null/undefined safely
+- Strip formatting characters and leading zeros
 
 ### Service Pattern
 
@@ -350,6 +386,18 @@ export type NormalizedMessage = {
   senderType: SenderType;
   contentType: ContentType;
   // ...
+};
+
+// whatsapp-webhook-types.ts
+export type WhatsAppMessageEcho = {
+  from: string;
+  id: string;
+  timestamp: string;
+  type: "text" | "image" | "video" | "file" | "voice" | "location" | "sticker";
+  text?: { body: string };
+  image?: { link: string };
+  video?: { link: string };
+  // ... media types
 };
 
 // database-types.ts
@@ -499,6 +547,7 @@ Before committing:
 - [ ] Error messages don't expose internals
 - [ ] Non-root Docker user
 - [ ] Environment secrets in .env (not .env.example)
+- [ ] Webhook signatures verified (HMAC-SHA1 for Kommo, X-Hub-Signature for WhatsApp)
 
 ## Performance Checklist
 
@@ -527,3 +576,5 @@ Before committing:
 6. **Don't expose raw database errors** — wrap in safe messages
 7. **Don't create new Supabase clients per request** — use singleton
 8. **Don't mix business logic in routes** — extract to services
+9. **Don't skip phone number normalization** — causes duplicate conversations (Phase A2)
+10. **Don't trust raw phone numbers for conversation ID** — always normalize first

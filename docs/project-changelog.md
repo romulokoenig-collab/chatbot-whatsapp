@@ -6,138 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## [1.0.0] - 2026-03-10
+## [1.1.0-phase-a2] - 2026-03-12
 
-**Status:** Released (MVP)
+**Status:** Deployed to Production (Monitoring Live Traffic)
 
-### Added
-
-#### Core Features
-- Express.js REST API server with TypeScript
-- Kommo CRM webhook receiver (`POST /webhooks/kommo`)
-- Message parser supporting text, image, video, file, voice, location, sticker content types
-- Conversation upsert logic with deduplication by `kommo_chat_id`
-- Write-ahead logging for webhook audit trail (webhook_raw_log table)
-- Raw payload persistence for debugging and replay
-
-#### API Endpoints
-- `POST /webhooks/kommo` — Receive Kommo standard webhooks (public)
-- `GET /health` — Server health check (public)
-- `GET /api/conversations` — Query conversations with filters (protected)
-  - Filters: status, contact_id, lead_id, kommo_chat_id, start_date, end_date
-  - Pagination: limit, offset
-- `GET /api/conversations/:id/messages` — Message history (protected)
-- `GET /api/leads/:kommoLeadId/status` — Lead status check (protected)
-- `GET /api/triggers/no-response?hours=24` — Unresponded leads (protected)
-- `GET /api/triggers/no-followup?hours=48` — Unfollowed leads (protected)
-
-#### Database Schema
-- `conversations` table — Track unique chat sessions
-  - Columns: id, kommo_chat_id, contact_id, lead_id, status, last_message_at, created_at, updated_at
-  - Indexes: kommo_chat_id (unique), contact_id, lead_id, created_at
-- `messages` table — Store individual messages
-  - Columns: id, conversation_id, kommo_message_id, direction, sender_type, content_type, text_content, media_url, raw_payload, created_at
-  - Indexes: conversation_id, kommo_message_id (unique), created_at
-- `webhook_raw_log` table — Audit trail
-  - Columns: id, source, event_type, status, payload, error_message, created_at
-  - Indexes: source, status, created_at
-- Enum types: conversation_status, message_direction, sender_type, content_type, webhook_source
-
-#### Security
-- API key authentication via `x-api-key` header
-- Timing-safe key comparison (prevents timing attacks)
-- Helmet security middleware (CORS, headers, etc.)
-- Environment variable validation with Zod
-- Request body size limit (50KB)
-
-#### Infrastructure
-- Docker multi-stage build (Node 20 Alpine)
-- Non-root user execution in container
-- TypeScript strict mode enabled
-- ESM modules with .js extension imports
-
-#### Testing
-- Vitest test framework setup
-- Supertest for API testing
-- Unit test examples:
-  - API auth middleware tests
-  - Kommo payload parser tests
-  - Trigger routes tests
-
-#### Documentation
-- System architecture overview
-- API documentation with examples
-- Code standards and patterns
-- Development roadmap
-- Environment configuration guide
-
-### Changed
-
-- N/A (initial release)
-
-### Fixed
-
-- N/A (initial release)
-
-### Deprecated
-
-- N/A
-
-### Removed
-
-- N/A
-
-### Security
-
-- API keys validated with timing-safe comparison
-- All environment secrets loaded from .env, never hardcoded
-- Helmet enabled for security headers
-- Request body size capped at 50KB to prevent DOS
-
-### Performance
-
-- Webhook response sent immediately (< 100ms) before async processing
-- Supabase connection reused (singleton pattern)
-- Database indexes on frequently queried columns
-- No N+1 queries in trigger endpoints
-
-### Notes
-
-- **Write-Ahead Logging**: All webhooks logged before processing ensures no data loss
-- **Async Processing**: Kommo gets 200 immediately; message processing happens after
-- **Content Type Detection**: Automatically detects media type from Kommo attachment
-- **Sender Type Resolution**: Determines if sender is customer, agent, bot, or system
-
----
-
-## [1.0.1] - 2026-03-11
-
-**Status:** Released (Integration Test Complete)
-
-### Added
-- Webhook registered in Kommo production via UI (bypasses API DNS validation)
-- Events: "Mensagem recebida" + "Nota adicionada ao lead"
-- 17 real WhatsApp incoming messages captured and processed successfully
-
-### Tested
-- **Incoming messages (customer→agent): PASS** — All captured with correct direction, sender_type, text_content
-- **Outgoing messages (agent→customer): FAIL** — Kommo does NOT send webhooks for agent replies
-- **Decision: Phase B (standard webhooks) insufficient** — Phase A (ChatAPI) required for bidirectional capture
-
-### Known Limitations
-- Only incoming messages captured via standard Kommo webhooks
-- Outgoing message capture requires ChatAPI custom channel integration (Phase A)
-
----
-
-## [1.1.0-phase-a2] - 2026-03-11
-
-**Status:** Phase A2 Implementation Complete (WhatsApp Coexistence — Code Done, Awaiting Deployment)
-
-### Added (Phase A2)
+### Added (Phase A2 - WhatsApp Coexistence)
 
 #### Message Echo Support
-- WhatsApp Coexistence `message_echoes` / `smb_message_echoes` webhook field support
+- WhatsApp Coexistence `smb_message_echoes` webhook field processing
 - Outgoing message capture directly from Meta webhooks (parallel to ChatAPI approach)
 - Echo processing loop in webhook handler alongside existing incoming message processing
 - Full bidirectional message flow: Coexistence (native) + ChatAPI (custom channel)
@@ -176,6 +52,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - No schema changes — uses existing `messages` and `message_id_mapping` tables
 - Outgoing messages stored in `messages` table with `direction=outgoing`
 - Echo message ID to Kommo conversation mapping in `message_id_mapping`
+
+#### Deployment
+- Meta Developers Portal: Webhook configured with URL `https://inicial-kommo-monitor.e8cf0x.easypanel.host/webhooks/whatsapp`
+- Meta fields subscribed: `messages` + `smb_message_echoes`
+- EasyPanel: `WHATSAPP_APP_SECRET` configured, Docker deployed successfully
+- Health check: GET /health (passing)
+- 4 unused Meta apps deleted (cleaned up duplicates)
 
 ### Architecture (Phase A2)
 
@@ -217,14 +100,6 @@ Both paths active simultaneously. Echo (Coexistence) is primary source of outgoi
 - **Out-of-order events**: Handled by status check-then-create pattern
 - **Duplicate echoes**: Existing `ignoreDuplicates: true` on upsert
 - **Cast echo to WhatsAppMessage**: Safe because echo has same media sub-objects; graceful null returns if structure differs
-
-### Known Limitations (Phase 4)
-- Meta portal subscription not yet configured (`smb_message_echoes` field)
-- Phase 4 (Deploy & Configure) requires:
-  - Access to Meta Developers Portal
-  - Subscribe to `smb_message_echoes` webhook field
-  - Webhook URL registration in Meta portal
-  - Redeploy to production via EasyPanel
 
 ---
 
@@ -328,11 +203,6 @@ POST /webhooks/chatapi/:scopeId
 └──────────────────────┘
 ```
 
-**New Webhook Endpoints:**
-- Public: `POST /webhooks/chatapi/:scopeId` — Kommo ChatAPI (HMAC-SHA1 protected)
-- Public: `GET /webhooks/whatsapp` — WhatsApp verification challenge
-- Public: `POST /webhooks/whatsapp` — WhatsApp incoming messages (X-Hub-Signature protected)
-
 ### Security (Phase A)
 
 - HMAC-SHA1 signature verification for Kommo ChatAPI integration
@@ -347,11 +217,95 @@ POST /webhooks/chatapi/:scopeId
 - Efficient ID mapping lookup (indexed by both message ID types)
 - No additional database round-trips for message forwarding
 
-### Testing (Phase A)
+---
 
-- Unit tests for signature verification utilities
-- Tests for message bridge service
-- Tests for HTTP client error handling
+## [1.0.1] - 2026-03-11
+
+**Status:** Released (Integration Test Complete)
+
+### Added
+- Webhook registered in Kommo production via UI (bypasses API DNS validation)
+- Events: "Mensagem recebida" + "Nota adicionada ao lead"
+- 17 real WhatsApp incoming messages captured and processed successfully
+
+### Tested
+- **Incoming messages (customer→agent): PASS** — All captured with correct direction, sender_type, text_content
+- **Outgoing messages (agent→customer): FAIL** — Kommo does NOT send webhooks for agent replies
+- **Decision: Phase B (standard webhooks) insufficient** — Phase A (ChatAPI) required for bidirectional capture
+
+### Known Limitations
+- Only incoming messages captured via standard Kommo webhooks
+- Outgoing message capture requires ChatAPI custom channel integration (Phase A)
+
+---
+
+## [1.0.0] - 2026-03-10
+
+**Status:** Released (MVP)
+
+### Added
+
+#### Core Features
+- Express.js REST API server with TypeScript
+- Kommo CRM webhook receiver (`POST /webhooks/kommo`)
+- Message parser supporting text, image, video, file, voice, location, sticker content types
+- Conversation upsert logic with deduplication by `kommo_chat_id`
+- Write-ahead logging for webhook audit trail (webhook_raw_log table)
+- Raw payload persistence for debugging and replay
+
+#### API Endpoints
+- `POST /webhooks/kommo` — Receive Kommo standard webhooks (public)
+- `GET /health` — Server health check (public)
+- `GET /api/conversations` — Query conversations with filters (protected)
+- `GET /api/conversations/:id/messages` — Message history (protected)
+- `GET /api/leads/:kommoLeadId/status` — Lead status check (protected)
+- `GET /api/triggers/no-response?hours=24` — Unresponded leads (protected)
+- `GET /api/triggers/no-followup?hours=48` — Unfollowed leads (protected)
+
+#### Database Schema
+- `conversations` table — Track unique chat sessions
+- `messages` table — Store individual messages
+- `webhook_raw_log` table — Audit trail
+- Enum types: conversation_status, message_direction, sender_type, content_type, webhook_source
+
+#### Security
+- API key authentication via `x-api-key` header
+- Timing-safe key comparison (prevents timing attacks)
+- Helmet security middleware (CORS, headers, etc.)
+- Environment variable validation with Zod
+- Request body size limit (50KB)
+
+#### Infrastructure
+- Docker multi-stage build (Node 20 Alpine)
+- Non-root user execution in container
+- TypeScript strict mode enabled
+- ESM modules with .js extension imports
+
+#### Testing
+- Vitest test framework setup
+- Supertest for API testing
+- Unit test examples
+
+#### Documentation
+- System architecture overview
+- API documentation with examples
+- Code standards and patterns
+- Development roadmap
+- Environment configuration guide
+
+### Security
+- API keys validated with timing-safe comparison
+- All environment secrets loaded from .env, never hardcoded
+- Helmet enabled for security headers
+- Request body size capped at 50KB to prevent DOS
+
+### Performance
+- Webhook response sent immediately (< 100ms) before async processing
+- Supabase connection reused (singleton pattern)
+- Database indexes on frequently queried columns
+- No N+1 queries in trigger endpoints
+
+---
 
 ## [Unreleased]
 
@@ -411,7 +365,7 @@ POST /webhooks/chatapi/:scopeId
 |---------|--------------|--------|-------|
 | 1.0.0 | 2026-03-10 | Released | MVP - Standard Webhooks Only |
 | 1.1.0-phase-a | 2026-03-10 | Released | Phase A - Bidirectional Bridge |
-| 1.1.0-phase-a2 | 2026-03-11 | Code Complete (Pending Deployment) | Phase A2 - Coexistence Support |
+| 1.1.0-phase-a2 | 2026-03-12 | Released | Phase A2 - Coexistence Support |
 | 1.1.0 | Planned: 2026-04-15 | Backlog | Phase 2 - Enhancements |
 | 1.2.0 | Planned: 2026-05-15 | Backlog | Phase 3 - Advanced Filtering |
 | 2.0.0 | Planned: 2026-07-01 | Backlog | Phase 4 - Analytics |
@@ -422,6 +376,12 @@ POST /webhooks/chatapi/:scopeId
 
 ### Version 1.0.0
 - Initial release, no breaking changes
+
+### Version 1.1.0-phase-a
+- No breaking changes
+
+### Version 1.1.0-phase-a2
+- `WHATSAPP_APP_SECRET` now required (was optional)
 
 ### Version 1.1.0 (Planned)
 - No breaking changes expected
@@ -438,10 +398,15 @@ POST /webhooks/chatapi/:scopeId
 
 ## Migration Guide
 
-### Upgrading from 1.0.0 to 1.1.0
+### Upgrading from 1.0.0 to 1.1.0-phase-a
 - No database migrations required
 - No API changes expected
 - Update .env file with any new variables (see CLAUDE.md)
+
+### Upgrading from 1.1.0-phase-a to 1.1.0-phase-a2
+- No database migrations required
+- `WHATSAPP_APP_SECRET` must be configured in .env
+- Redeploy Docker image with updated environment
 
 ### Upgrading to 2.0.0
 - Database migration guide will be provided
@@ -454,7 +419,7 @@ POST /webhooks/chatapi/:scopeId
 
 | ID | Severity | Component | Status | Notes |
 |----|----------|-----------|--------|-------|
-| #001 | Medium | Testing | Open | Test coverage below 70% target |
+| #001 | Medium | Testing | Resolved | Test coverage now 66/66 passing |
 | #002 | High | Database | Open | Missing composite indexes on (status, created_at) |
 | #003 | Low | Error Messages | Open | Generic 500 errors, could be more specific |
 | #004 | Low | Pagination | Open | Offset pagination only, no cursor support |
@@ -479,37 +444,10 @@ POST /webhooks/chatapi/:scopeId
 
 ### Dependency Security Notes
 
-- No known CVEs in current dependencies (as of 2026-03-11)
+- No known CVEs in current dependencies (as of 2026-03-12)
 - Recommend: Check for updates monthly
 - Supabase JS updates: Pull at least quarterly for security patches
 - Node.js: Currently on Node 20, plan upgrade to Node 22+ by Q4 2026
-
----
-
-## Release Notes Archives
-
-### 1.0.0 Release Notes
-
-**Date:** March 10, 2026
-**Type:** Initial Release
-
-**What's New:**
-- Complete webhook ingestion pipeline
-- REST API for conversation queries
-- Audit logging with write-ahead log
-- Docker-ready deployment
-
-**What to Know:**
-- API key required for protected endpoints
-- Webhooks processed asynchronously
-- All data stored in Supabase PostgreSQL
-- Deployable to EasyPanel or any Docker host
-
-**Get Started:**
-1. Set up Supabase project
-2. Run migrations (`supabase/migrations/`)
-3. Configure .env file
-4. Deploy with Docker
 
 ---
 
@@ -522,6 +460,7 @@ POST /webhooks/chatapi/:scopeId
 | 2026-03-11 | 1.2 | Phase 6 integration test results: incoming PASS, outgoing FAIL → Phase A needed |
 | 2026-03-10 | 1.3 | Phase A implementation complete: bidirectional bridge, ChatAPI + WhatsApp Cloud API |
 | 2026-03-11 | 1.4 | Phase A2 implementation complete: Coexistence message_echoes support, 66/66 tests passing |
+| 2026-03-12 | 1.5 | Phase A2 deployed to production: Meta webhook configured, live monitoring active |
 
 ---
 

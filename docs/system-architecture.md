@@ -9,6 +9,7 @@ The Kommo WhatsApp Monitoring Backend is a Node.js/TypeScript service that captu
 - Store raw payloads and processed messages in Supabase with full audit trail
 - Query conversations with filtering (status, date range, contact/lead ID)
 - Identify stalled conversations for automation triggers (no response, no follow-up)
+- Capture outgoing messages via WhatsApp Cloud API message echoes (Phase A2)
 
 ## Technology Stack
 
@@ -64,9 +65,11 @@ POST /webhooks/chatapi/:scopeId
 **Webhook Ingestion (Phase A - WhatsApp Cloud API):**
 ```
 GET /webhooks/whatsapp (Meta verification challenge)
-POST /webhooks/whatsapp (incoming messages from WhatsApp)
+POST /webhooks/whatsapp (incoming messages + echoes from WhatsApp)
 ├─ whatsapp-webhook-handler.ts (entry point)
 ├─ webhook-raw-logger.ts (write-ahead log)
+├─ X-Hub-Signature verification
+├─ Echo processing loop (Phase A2)
 └─ Services:
    ├─ conversation-service.ts (upsert)
    ├─ message-service.ts (insert)
@@ -114,27 +117,46 @@ GET /health
 
 ### 5. Webhook Processing Flow
 
-**Kommo Standard Handler** (`src/webhooks/kommo-standard-handler.ts`)
+**WhatsApp Webhook Handler** (`src/webhooks/whatsapp-webhook-handler.ts`)
 
 1. **Write-Ahead Log**: Save raw webhook immediately before processing
    - Logs to `webhook_raw_log` table with status `pending`
-   - Extracts event type (message, note, etc.)
+   - Extracts event type (message, echo, status, etc.)
 
-2. **Fast Response**: Return 200 to Kommo immediately (prevents retries)
+2. **Fast Response**: Return 200 to Meta immediately (prevents retries)
 
 3. **Async Processing** (after response sent):
-   - Parse Kommo webhook body (handles urlencoded format)
-   - Extract normalized message fields
-   - Upsert conversation record
-   - Insert message record
+   - **Process incoming messages:**
+     - Parse WhatsApp webhook body
+     - Extract normalized message fields
+     - Upsert conversation record
+     - Insert message record
+   - **Process message echoes (Phase A2):**
+     - Extract `smb_message_echoes` array from webhook value
+     - For each echo:
+       - Normalize phone number (prevent duplicates)
+       - Create or get conversation ID
+       - Insert message record with `direction=outgoing`
+       - Create/update message ID mapping
+       - Per-item error handling (continue if one echo fails)
+   - **Process status updates:**
+     - Check for existing message ID mapping before creating
+     - Create mapping-only record if not found (handles out-of-order delivery)
    - Mark webhook as `processed` or `error` in audit log
 
-**Message Normalization:**
-- Extracts: `kommoMessageId`, `kommoChatId`, `direction` (incoming/outgoing)
-- Determines: `senderType` (customer/agent/bot/system) based on direction and author metadata
-- Resolves: `contentType` (text/image/video/file/voice/location/sticker)
-- Captures: Text content, media URL, sender ID, contact ID, lead ID, timestamp
+**Message Normalization (Incoming):**
+- Extracts: phone, message ID, timestamp, text/media
+- Determines: direction (incoming), sender type (customer)
+- Resolves: content type (text/image/video/file/voice/location/sticker)
+- Captures: Text content, media URL, sender ID, timestamp
 - Stores: Raw payload for audit trail
+
+**Echo Processing (Phase A2):**
+- Normalizes phone number (`normalizePhone()`) to prevent duplicates
+- Creates conversation ID using normalized phone
+- Stores as `direction=outgoing` message
+- Creates message ID mapping for echo ID tracking
+- Graceful error handling per echo (logs, continues)
 
 ### 6. Data Layer
 
@@ -150,6 +172,7 @@ GET /health
 | `conversations` | Track unique chat sessions | `id`, `kommo_chat_id`, `contact_id`, `lead_id`, `status`, `last_message_at` |
 | `messages` | Store individual messages | `id`, `conversation_id`, `kommo_message_id`, `direction`, `sender_type`, `content_type`, `text_content`, `media_url`, `created_at` |
 | `webhook_raw_log` | Audit trail of all webhooks | `id`, `source`, `event_type`, `status`, `payload`, `error_message`, `created_at` |
+| `message_id_mapping` | WhatsApp ↔ Kommo message ID tracking | `id`, `whatsapp_message_id`, `kommo_message_id`, `kommo_conversation_id`, `created_at` |
 
 **Enums:**
 - `conversation_status`: active, closed
@@ -193,7 +216,7 @@ GET /health
 | `WHATSAPP_ACCESS_TOKEN` | string | No | - | Meta WhatsApp Cloud API access token (Phase A) |
 | `WHATSAPP_PHONE_NUMBER_ID` | string | No | - | WhatsApp business phone number ID (Phase A) |
 | `WHATSAPP_VERIFY_TOKEN` | string | No | - | WhatsApp webhook verification token (Phase A) |
-| `WHATSAPP_APP_SECRET` | string | No | - | WhatsApp app secret for X-Hub-Signature verification (Phase A) |
+| `WHATSAPP_APP_SECRET` | string | **Yes** | - | WhatsApp app secret for X-Hub-Signature verification (Required Phase A2) |
 
 **Validation:**
 - Uses Zod for runtime validation
@@ -223,33 +246,40 @@ Stage 2 (Production):
 - Mount env file with secrets
 - Map port 3000 → external port
 - Configure health check: `GET /health`
-- **Live Instance:** https://inicial-kommo-monitor.e8cf0x.easypanel.host (deployed 2026-03-10)
+- **Live Instance:** https://inicial-kommo-monitor.e8cf0x.easypanel.host (deployed 2026-03-12)
 
 ## Data Flow Examples
 
-### Phase B: Kommo Standard Webhook (Incoming Only)
+### Phase A2: WhatsApp Coexistence Message Echo (Outgoing)
 
 ```
-Customer sends WhatsApp message via Kommo
+Agent sends WhatsApp message via Kommo ChatAPI
         ↓
-Kommo CRM detects message_add event
+Kommo ChatAPI custom channel broadcasts message to WhatsApp
         ↓
-POST /webhooks/kommo (raw payload)
+WhatsApp Cloud API stores message
+        ↓
+Meta sends message_echo webhook event
+        ↓
+POST /webhooks/whatsapp (with smb_message_echoes field)
+        ↓
+[Signature Verification] (validates WHATSAPP_APP_SECRET)
         ↓
 [Write-Ahead Log] → webhook_raw_log (status: pending)
         ↓
-[Respond 200] (Kommo satisfied)
+[Respond 200] (Meta satisfied)
         ↓
-[Parse & Normalize]
-  - Extract message fields
-  - Determine direction, sender type, content type
-        ↓
-[Upsert Conversation]
-  - If kommo_chat_id exists: update last_message_at, status
-  - Else: create new conversation record
+[Parse Echo Message]
+  - Extract from smb_message_echoes array
+  - Normalize phone number
+  - Create conversation using normalized phone
         ↓
 [Insert Message]
-  - Store normalized message with conversation_id
+  - Store in messages table (direction=outgoing)
+        ↓
+[Create Message ID Mapping]
+  - Link WhatsApp echo ID to conversation
+  - Enable status tracking for delivery confirmation
         ↓
 [Mark Processed]
   - Update webhook_raw_log (status: processed)
@@ -262,7 +292,7 @@ Agent sends message via Kommo ChatAPI custom channel
         ↓
 Kommo ChatAPI webhook POST /webhooks/chatapi/:scopeId
         ↓
-[HMAC-SHA1 Signature Verification] (validates Kommo_CHANNEL_SECRET)
+[HMAC-SHA1 Signature Verification] (validates KOMMO_CHANNEL_SECRET)
         ↓
 [Write-Ahead Log] → webhook_raw_log (status: pending)
         ↓
@@ -313,6 +343,34 @@ Meta's WhatsApp Cloud API POST /webhooks/whatsapp
   - Update webhook_raw_log (status: processed)
 ```
 
+### Phase B: Kommo Standard Webhook (Incoming Only)
+
+```
+Customer sends WhatsApp message via Kommo
+        ↓
+Kommo CRM detects message_add event
+        ↓
+POST /webhooks/kommo (raw payload)
+        ↓
+[Write-Ahead Log] → webhook_raw_log (status: pending)
+        ↓
+[Respond 200] (Kommo satisfied)
+        ↓
+[Parse & Normalize]
+  - Extract message fields
+  - Determine direction, sender type, content type
+        ↓
+[Upsert Conversation]
+  - If kommo_chat_id exists: update last_message_at, status
+  - Else: create new conversation record
+        ↓
+[Insert Message]
+  - Store normalized message with conversation_id
+        ↓
+[Mark Processed]
+  - Update webhook_raw_log (status: processed)
+```
+
 ## Security Considerations
 
 1. **API Authentication**: Timing-safe key comparison prevents side-channel attacks
@@ -323,10 +381,11 @@ Meta's WhatsApp Cloud API POST /webhooks/whatsapp
 6. **Non-Root Docker**: App runs as `app` user, not root
 7. **Write-Ahead Log**: All raw payloads logged before processing (audit trail, recovery)
 8. **Error Handling**: Don't expose sensitive info in error responses
+9. **Webhook Signature Verification**: HMAC-SHA1 (Kommo) + X-Hub-Signature (WhatsApp)
 
 ## Performance Considerations
 
-1. **Async Processing**: Respond to Kommo immediately, process async after
+1. **Async Processing**: Respond to webhooks immediately, process async after
 2. **Singleton Connections**: Supabase client reused across requests
 3. **Indexed Queries**: Database indexes on `kommo_chat_id`, `contact_id`, `lead_id`, `created_at`
 4. **Body Size Limits**: 50kb prevents memory exhaustion
