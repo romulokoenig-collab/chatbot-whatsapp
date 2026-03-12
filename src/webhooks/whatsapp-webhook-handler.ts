@@ -91,6 +91,23 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
               });
               await updateDeliveryStatus(status.id, status.status);
             }
+
+            // On first "sent" status, update conversation.last_outgoing_at
+            // This enables no-response/no-followup triggers without outgoing message content
+            if (status.status === "sent") {
+              const customerPhone = normalizePhone(status.recipient_id);
+              const statusTimestamp = status.timestamp
+                ? new Date(Number(status.timestamp) * 1000).toISOString()
+                : new Date().toISOString();
+
+              await upsertConversation({
+                kommoChatId: `wa_${customerPhone}`,
+                contactId: null,
+                leadId: null,
+                direction: "outgoing",
+                messageTimestamp: statusTimestamp,
+              });
+            }
           } catch (err) {
             console.error(`[WhatsApp] Status processing error for ${status.id}:`, err);
           }
