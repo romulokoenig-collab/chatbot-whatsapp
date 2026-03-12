@@ -251,6 +251,7 @@ Stage 2 (Production):
 ## Data Flow Examples
 
 ### Phase A2: WhatsApp Coexistence Message Echo (Outgoing)
+n> **Production Finding (2026-03-12):** `smb_message_echoes` only fires for messages sent via the WhatsApp Business App, NOT via Cloud API. Since Kommo sends via Cloud API, this echo flow does not trigger. Status tracking (sent/delivered/read) via the `messages` field webhook works correctly and is sufficient for automation triggers.
 
 ```
 Agent sends WhatsApp message via Kommo ChatAPI

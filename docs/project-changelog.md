@@ -87,7 +87,9 @@ Path 2: ChatAPI (custom channel via Kommo)
   WhatsApp Cloud API → Customer
 ```
 
-Both paths active simultaneously. Echo (Coexistence) is primary source of outgoing message content.
+Both paths active simultaneously.
+
+**Production Finding (2026-03-12):** `smb_message_echoes` only fires for messages sent via WhatsApp Business App, NOT Cloud API. Since Kommo sends via Cloud API, echo content is not captured. Status tracking (sent/delivered/read) works and is sufficient for automation triggers.
 
 ### Testing Notes
 - No Supabase mocks — all tests are pure function tests

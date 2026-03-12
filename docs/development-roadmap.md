@@ -268,3 +268,14 @@ Both paths active simultaneously. Echo (Coexistence) is primary source of outgoi
 - [Code Standards](./code-standards.md) — How to develop features
 - [API Documentation](./api-docs.md) — Available endpoints
 - [Project Changelog](./project-changelog.md) — Version history
+
+### Production Findings (2026-03-12)
+
+**Echo Limitation:** `smb_message_echoes` only fires for messages sent via the WhatsApp Business App (mobile/desktop), NOT for messages sent via Cloud API by BSPs like Kommo. Since Kommo sends messages through the Cloud API, outgoing message **content** is not captured via echoes.
+
+**What works:**
+- Incoming messages: captured via both Meta webhook (`messages` field) and Kommo standard webhook
+- Status tracking: `sent → delivered → read` cycle captured in `message_id_mapping`
+- Kommo outgoing events: captured via Kommo standard webhook (direction, timestamp)
+
+**Conclusion:** Status tracking + Kommo standard webhooks are sufficient for automation triggers (no-response, no-followup, reengagement). Echo content capture is a nice-to-have, not a blocker.
