@@ -2,7 +2,7 @@
 
 ## Project Status Overview
 
-**Current Version:** 1.1.0-phase-a2
+**Current Version:** 1.1.0-phase-a3
 **Last Updated:** 2026-03-13
 **Project Phase:** Phase A3 In Progress — Awaiting Kommo Support for Chat Channel Registration
 
@@ -14,8 +14,10 @@
 | Phase A Webhook Endpoints | 3 | Complete |
 | Phase A2 Enhancements | 1 (message_echoes) | Complete |
 | Database Tables | 5 | Complete |
+| Composite Indexes | 3 | Complete |
 | Message Forwarding Paths | 2 (bidirectional) | Complete |
 | Test Coverage | 66/66 tests passing | Complete |
+| Structured Logging | Pino (JSON prod, pretty dev) | Complete |
 | Docker Support | Yes | Complete |
 | Documentation | 95% | Complete |
 
@@ -79,24 +81,6 @@
 - [x] EasyPanel deployment with `WHATSAPP_APP_SECRET` configured
 - [x] Health check validation
 
-### Key Features
-
-1. **Message Echo Support**
-   - Process `smb_message_echoes` webhook field from Meta
-   - Outgoing message capture parallel with incoming messages
-   - Echo message ID mapping for status tracking
-   - Phone number normalization prevents duplicate conversations
-
-2. **Status Mapping Fallback**
-   - Check for existing mapping before creating
-   - Out-of-order event handling (status before echo)
-   - Prevents race condition with skeletal records
-
-3. **Deployment Infrastructure**
-   - Meta webhook URL: `https://inicial-kommo-monitor.e8cf0x.easypanel.host/webhooks/whatsapp`
-   - Signature verification via `WHATSAPP_APP_SECRET`
-   - Health check: GET /health (passing)
-
 ---
 
 ## Phase A3: Outgoing Message Content Capture (In Progress)
@@ -105,6 +89,14 @@
 **Timeline:** Started 2026-03-12
 **Priority:** HIGH
 **Description:** Register private chat channel with Kommo to access Chats API for outgoing message content
+
+### Completed (2026-03-13)
+
+- [x] Composite database indexes for trigger queries (migration 006)
+- [x] Pino structured logging replacing all console.* calls
+- [x] AppError class with structured error responses `{code, message}`
+- [x] Kommo Chats API HMAC-SHA1 client (`kommo-chats-api-client.ts`)
+- [x] Code review: all findings addressed
 
 ### Background & Investigation
 
@@ -128,34 +120,12 @@ Private chat channel registration requires Kommo Support approval (1-3 business 
 ### Next Steps (After Kommo Approval)
 
 1. [ ] Receive `scope_id` + `channel_secret` from Kommo
-2. [ ] Test `GET amojo.kommo.com/v2/origin/custom/{scope_id}/chats/{conv_id}/history`
-3. [ ] Implement reactive polling: Meta `sent` status → Chats API call → store content
-4. [ ] Add HMAC-SHA1 signing for Chats API requests
+2. [ ] Configure credentials in EasyPanel
+3. [ ] Test Chats API history endpoint with real data
+4. [ ] Implement reactive polling: Meta `sent` status → Chats API call → store content
 5. [ ] Store outgoing message content in `messages` table
 6. [ ] Add tests for new flow
 7. [ ] Deploy to production
-
-### Architecture (Planned — Post-Approval)
-
-```
-Meta webhook: status=sent + wamid
-  |
-  v
-Our Backend (POST /webhooks/whatsapp)
-  |
-  v
-Lookup conversation_id via message_id_mapping
-  |
-  v
-GET amojo.kommo.com/v2/origin/custom/{scope_id}/chats/{conv_id}/history
-  (HMAC-SHA1 signed request)
-  |
-  v
-Extract outgoing message content
-  |
-  v
-Store in messages table (direction=outgoing, text_content=...)
-```
 
 ### Environment Variables
 
@@ -164,35 +134,28 @@ KOMMO_SUBDOMAIN=kfsa
 KOMMO_PRIVATE_TOKEN=<long-lived-token>
 KOMMO_SCOPE_ID=<from-channel-registration>
 KOMMO_CHANNEL_SECRET=<from-channel-registration>
+LOG_LEVEL=info
 ```
 
 ---
 
 ## Phase 2: Optimization & Monitoring (Next)
 
-**Status:** PLANNED
+**Status:** PARTIALLY COMPLETE
 **Timeline:** 2026-04-01 → 2026-04-30
 **Priority:** HIGH
 
-### Goals
+### Completed Early (moved from Phase 2/3)
 
-- Identify stalled conversations for automation
-- Expose trigger APIs for external systems (Zapier, Make, custom bots)
-- Enable automated follow-ups and reminders
+- [x] Structured logging (Pino) — JSON in prod, pretty-print in dev
+- [x] Composite database indexes on (status, last_incoming_at), (status, last_outgoing_at)
+- [x] Structured error responses (AppError class)
 
-### Implementation Details
+### Remaining Goals
 
-**No-Response Trigger:**
-- Query: conversations where last message is `incoming`
-- AND: last message created > N hours ago
-- Returns: Leads waiting for agent response
-- Use case: Alert agents, auto-escalate, send reminders
-
-**No-Followup Trigger:**
-- Query: conversations where last message is `outgoing`
-- AND: last message created > N hours ago
-- Returns: Leads waiting for customer reply
-- Use case: Re-engagement campaigns, follow-up sequences
+- Webhook retry logic with exponential backoff
+- Performance monitoring and metrics
+- Enhanced trigger queries with configurable thresholds
 
 ---
 
@@ -204,9 +167,9 @@ KOMMO_CHANNEL_SECRET=<from-channel-registration>
 
 ### Goals
 
-- Improve query flexibility for large datasets
-- Support complex filtering (date ranges, multiple statuses, fuzzy search)
-- Optimize pagination for production scale
+- Cursor-based pagination (vs offset)
+- Complex filtering (date ranges, multiple statuses, fuzzy search)
+- Full-text search on message content
 
 ---
 
@@ -218,8 +181,9 @@ KOMMO_CHANNEL_SECRET=<from-channel-registration>
 
 ### Goals
 
-- Provide insights into WhatsApp conversation patterns
-- Enable data-driven decision making
+- Conversation metrics API
+- Daily summary aggregations
+- Response time analytics
 
 ---
 
@@ -227,11 +191,12 @@ KOMMO_CHANNEL_SECRET=<from-channel-registration>
 
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
-| Test coverage improved | Medium | RESOLVED | Now 66/66 tests passing |
-| No database indexes | High | Planned for Phase 3 | May cause slow queries at scale |
-| No caching layer | Medium | Backlog | Could add Redis for conversation queries |
-| No pagination cursor | Low | Planned for Phase 3 | Offset pagination only |
-| ChatAPI bridge dead code | Low | Open | Phase A ChatAPI code unused without credentials |
+| #001 | Medium | RESOLVED | Test coverage 66/66 passing |
+| #002 | High | RESOLVED | Composite indexes added (migration 006) |
+| #003 | Low | RESOLVED | AppError class with structured responses |
+| #004 | Low | Open | Offset pagination only, no cursor support |
+| #005 | High | Blocked | Chats API requires channel registration |
+| #006 | Low | Clarified | ChatAPI bridge is pre-built for own-channel architecture |
 
 ---
 
@@ -257,7 +222,7 @@ KOMMO_CHANNEL_SECRET=<from-channel-registration>
 | POST /webhooks/whatsapp | < 100ms | ~50ms | Good |
 | GET /api/conversations | < 500ms | ~200ms | Good |
 | GET /api/conversations/*/messages | < 500ms | ~150ms | Good |
-| GET /api/triggers/* | < 1000ms | ~300ms | Good |
+| GET /api/triggers/* | < 1000ms | ~85ms | Good (indexed) |
 
 ---
 
@@ -282,16 +247,16 @@ KOMMO_CHANNEL_SECRET=<from-channel-registration>
 
 ### Version 1.1.0-phase-a3 (In Progress)
 - ETA: 2026-03-17 (depends on Kommo approval)
-- Features: Chats API integration for outgoing message content capture
+- Features: Chats API client, Pino logging, AppError class, composite indexes
 - Dependency: Chat channel registration approval from Kommo Support
 
 ### Version 1.1.0 (Phase 2)
 - ETA: 2026-04-30
-- Features: Structured logging, performance monitoring, webhook retry logic
+- Features: Webhook retry, performance monitoring
 
 ### Version 1.2.0 (Phase 3)
 - ETA: 2026-05-15
-- Features: Enhanced filtering, sorting, cursor pagination, composite indexes
+- Features: Cursor pagination, full-text search
 
 ### Version 2.0.0 (Phase 4)
 - ETA: 2026-07-01
@@ -307,8 +272,9 @@ KOMMO_CHANNEL_SECRET=<from-channel-registration>
 | 2026-03-10 | 1.1 | Added Phase A (bidirectional bridge) |
 | 2026-03-11 | 1.2 | Phase A2 code complete, 66/66 tests |
 | 2026-03-12 | 1.3 | Phase A2 deployed to production, live monitoring |
-| 2026-03-13 | 1.4 | Phase A3: Kommo Private Integration investigation, API testing results |
-| 2026-03-13 | 1.5 | Phase A3: talks scope doesn't exist, pivoted to Chats API channel registration |
+| 2026-03-13 | 1.4 | Phase A3: Kommo Private Integration investigation |
+| 2026-03-13 | 1.5 | Phase A3: talks scope doesn't exist, pivot to Chats API |
+| 2026-03-13 | 1.6 | Phase A3: Pino logging, AppError, Chats API client, composite indexes |
 
 ---
 
