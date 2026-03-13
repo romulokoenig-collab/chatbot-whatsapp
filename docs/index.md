@@ -43,17 +43,18 @@ New to the project? Start here:
 
 ### System Documentation
 
-**[System Architecture](./system-architecture.md)** (363 lines)
-- Technology stack overview
-- 8-layer architecture breakdown (Phase B + Phase A)
+**[System Architecture](./system-architecture.md)** (445 lines)
+- Technology stack overview with Pino logging
+- 9-layer architecture breakdown (Phase B + Phase A + Phase A3)
 - How data flows through the system
 - Webhook processing pipeline (3 paths: Kommo, ChatAPI, WhatsApp)
-- Database schema (5 tables + enums)
+- Database schema with composite indexes
 - Security implementation (API auth + HMAC signatures)
 - Performance targets and deployment strategy
-- Error handling and observability
+- Error handling with AppError class and Pino logger
+- Observability with structured JSON logs
 
-**[API Documentation](./api-docs.md)** (748 lines)
+**[API Documentation](./api-docs.md)** (745 lines)
 - All 9 API endpoints with full specs (Phase B + Phase A)
   - Kommo standard webhooks
   - Kommo ChatAPI webhooks + HMAC verification
@@ -61,7 +62,7 @@ New to the project? Start here:
   - REST API endpoints
 - Request/response examples with real payloads
 - Query parameters and path variables
-- Error codes and error handling
+- Structured error codes with code + message fields
 - Field reference (directions, types, content)
 - Example workflows (3 real-world scenarios)
 - Rate limiting guidelines
@@ -69,17 +70,19 @@ New to the project? Start here:
 
 ### Development Documentation
 
-**[Code Standards](./code-standards.md)** (500+ lines)
-- Directory structure (Phase B + Phase A files)
+**[Code Standards](./code-standards.md)** (600+ lines)
+- Directory structure (Phase A3 files included)
 - File naming conventions (kebab-case)
 - TypeScript strict mode configuration
 - Naming conventions (camelCase, PascalCase, snake_case)
 - Database reference conventions (snake_case)
 - Code patterns:
   - Environment configuration (Zod validation)
-  - Error handling with context logging
+  - Structured logging with Pino (object-first pattern)
+  - Error handling with AppError class
   - Timing-safe comparisons for secrets
   - HMAC signature verification (SHA1, SHA256)
+  - Kommo Chat History API client (Phase A3)
   - Service pattern (business logic)
   - HTTP client pattern (external APIs)
   - Message mapping service (bidirectional tracking)
@@ -88,52 +91,47 @@ New to the project? Start here:
   - Route handlers
   - Testing standards (Vitest, Supertest)
 - Checklists: code review, security, performance, documentation
-- Common pitfalls to avoid
+- Common pitfalls to avoid (12 items)
 
 **[Development Roadmap](./development-roadmap.md)** (425+ lines)
 - Project status overview (key metrics)
-- Phase 1 (MVP) — COMPLETE ✓
-  - Core webhook ingestion
-  - REST API, database schema, security
-  - Docker support, testing framework
-- Phase A (Bidirectional Bridge) — COMPLETE ✓
-  - ChatAPI + WhatsApp webhook handlers
-  - HMAC-SHA1 & SHA256 signature verification
-  - Message forwarding (bidirectional)
-  - Message ID mapping service
-  - External API clients
-- Phase 2 (Future) — PLANNED
-  - Enhanced filtering and pagination
-  - Full-text search, performance optimizations
-  - Database optimizations
-- Phase 4 (Reporting) — PLANNED
-  - Analytics endpoints
-  - Dashboard summaries
-  - Export capabilities
-- Phase 5 (Advanced Features) — BACKLOG
-  - Sentiment analysis
-  - Auto-tagging
-  - Rate limiting
-  - Multi-channel support
-- Known issues (4 tracked)
+- Phase A3 (Current) — Structured logging, AppError, Chat History API
+- Phase 2 (Future) — Planned features
+- Known issues (tracked)
 - Performance targets
-- Release plan (v1.0.0 released, v1.1.0 next)
+- Release plan
 - Success metrics
 
 **[Project Changelog](./project-changelog.md)** (318 lines)
-- Version 1.0.0 (2024-03-10) — Released
-  - 7 API endpoints
-  - 3 database tables
-  - Webhook receiver with write-ahead log
-  - API key authentication
-  - Docker multi-stage build
-  - Vitest & Supertest setup
-  - Complete documentation
-- Unreleased features (v1.1.0, v1.2.0, 2.0.0)
+- Version 1.1.0-phase-a3 (Current)
+  - Pino structured logging (JSON + pretty-print)
+  - AppError class for structured responses
+  - Kommo Chat History API client with HMAC-SHA1
+  - Composite indexes for trigger optimization
+  - 15+ files refactored for logging
+- Version 1.1.0-phase-a2 (Released)
+  - Message echo support with phone normalization
+- Version 1.0.0 (Released)
+  - Core webhook ingestion
+- Unreleased features (v1.2.0, 2.0.0)
 - Known issues log
 - Breaking changes document
-- Migration guide template
 - Dependency security notes
+
+**[Codebase Summary](./codebase-summary.md)** (380 lines)
+- Quick overview of version 1.1.0-phase-a3
+- Complete directory structure
+- Core components and services
+- Technology stack with versions
+- Development scripts
+- Security features
+- Performance characteristics
+- Docker build setup
+- Deployment instructions
+- Testing strategy
+- Environment variables
+- Known limitations
+- Phase A3 details (logging, errors, Chat History API)
 
 ### Navigation
 
@@ -174,10 +172,10 @@ New to the project? Start here:
 → [Code Standards](./code-standards.md#security-checklist)
 
 **"What features are planned?"**
-→ [Development Roadmap](./development-roadmap.md#phase-2-automation-triggers-current)
+→ [Development Roadmap](./development-roadmap.md#phase-2-future)
 
 **"What changed in the last release?"**
-→ [Project Changelog](./project-changelog.md#100---2024-03-10)
+→ [Project Changelog](./project-changelog.md)
 
 **"How do webhooks work?"**
 → [System Architecture](./system-architecture.md#webhook-processing-flow)
@@ -189,10 +187,16 @@ New to the project? Start here:
 → [Code Standards](./code-standards.md#naming-conventions)
 
 **"How do I add a new endpoint?"**
-→ [Code Standards](./code-standards.md#add-a-new-api-endpoint) and [README.md](./README.md#add-a-new-api-endpoint)
+→ [Code Standards](./code-standards.md#route-handlers) and [README.md](./README.md#add-a-new-api-endpoint)
 
 **"What's the deployment process?"**
 → [System Architecture](./system-architecture.md#deployment) and [README.md](./README.md#deployment)
+
+**"How do I use the logger?"**
+→ [Code Standards](./code-standards.md#structured-logging-with-pino)
+
+**"How do I handle errors?"**
+→ [Code Standards](./code-standards.md#error-handling-with-apperror)
 
 ---
 
@@ -200,14 +204,15 @@ New to the project? Start here:
 
 | Document | Lines | Topics | Type |
 |----------|-------|--------|------|
-| System Architecture | 395 | 8 sections | Technical |
-| API Documentation | 478 | 7 endpoints | Reference |
-| Code Standards | 424 | 9 sections | Guidelines |
-| Development Roadmap | 342 | 5 phases | Planning |
+| System Architecture | 445 | 9 sections | Technical |
+| API Documentation | 745 | 9 endpoints | Reference |
+| Code Standards | 600+ | 12 sections | Guidelines |
+| Development Roadmap | 425+ | 5 phases | Planning |
 | Project Changelog | 318 | Versions | Reference |
+| Codebase Summary | 380 | Components | Overview |
 | README.md | 287 | 11 sections | Guide |
-| Index.md | ~250 | Navigation | Guide |
-| **Total** | **2,494** | **100+** | **7 files** |
+| Index.md | ~280 | Navigation | Guide |
+| **Total** | **3,480+** | **100+** | **8 files** |
 
 ---
 
@@ -238,9 +243,21 @@ New to the project? Start here:
 
 ### Architecture
 - **Layers:** Entry → App → Routes → Services → Database
-- **Async Processing:** Respond to Kommo fast (< 100ms), process async after
+- **Async Processing:** Respond to webhooks fast (< 100ms), process async after
 - **Write-Ahead Log:** All webhooks logged before processing (no data loss)
 - **Stateless:** Can scale horizontally with load balancing
+
+### Logging
+- **Pino Logger:** Structured JSON logs (production) + pretty-print (dev)
+- **Log Levels:** Configurable via `LOG_LEVEL` env var (default: info)
+- **Object-First:** `logger.info({ data }, "message")` pattern
+- **Replaces Console:** All console.log/error calls replaced with Pino
+
+### Error Handling
+- **AppError Class:** Structured errors with code + message fields
+- **Structured Responses:** `{error: {code, message}}` format
+- **Safe Details:** Stack traces only in non-production
+- **Route Delegation:** Use `next(err)` to delegate to error handler
 
 ### Security
 - **API Key Auth:** x-api-key header with timing-safe comparison
@@ -252,11 +269,13 @@ New to the project? Start here:
 - **Webhook Response:** < 100ms (respond before processing)
 - **API Endpoints:** < 500ms (with database indexes)
 - **Scalability:** Stateless + Supabase auto-scaling
+- **Composite Indexes:** Optimized trigger queries
 
 ### Data
-- **3 Tables:** conversations, messages, webhook_raw_log
+- **4 Tables:** conversations, messages, webhook_raw_log, message_id_mapping
 - **5 Enums:** status, direction, sender_type, content_type, source
 - **Indexed Columns:** Optimized for queries
+- **Composite Indexes:** Phase A3 optimization
 
 ---
 
@@ -319,6 +338,7 @@ project-root/
     ├── system-architecture.md         # Technical design
     ├── api-docs.md                    # Endpoint reference
     ├── code-standards.md              # Development guide
+    ├── codebase-summary.md            # Component overview
     ├── development-roadmap.md         # Project plan
     └── project-changelog.md           # Release history
 ```
@@ -335,7 +355,7 @@ project-root/
 
 ---
 
-**Last Updated:** 2024-03-10
-**Total Documentation:** 7 files, 2,494 lines
-**Coverage:** 100% of current features
-**Next Review:** End of Phase 2 (2024-03-20)
+**Last Updated:** 2026-03-13
+**Total Documentation:** 8 files, 3,480+ lines
+**Coverage:** 100% of current features (Phase A3)
+**Next Review:** End of Phase A3 (Kommo support confirmation)

@@ -25,14 +25,7 @@ curl -H "x-api-key: your-secret-api-key" \
 
 ## Response Format
 
-All responses are JSON:
-
-```json
-{
-  "data": { ... },
-  "error": "message (on errors only)"
-}
-```
+All responses are JSON. Success responses include a `data` field. Error responses include an `error` object with `code` and `message` fields. Stack traces are included in non-production environments via the `stack` field.
 
 ### Success Response (200)
 
@@ -46,7 +39,21 @@ All responses are JSON:
 
 ```json
 {
-  "error": "descriptive error message"
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "descriptive error message"
+  }
+}
+```
+
+**In non-production:**
+```json
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "descriptive error message"
+  },
+  "stack": "Error: ...\n    at ..."
 }
 ```
 
@@ -413,7 +420,9 @@ curl -H "x-api-key: secret-key" \
 }
 ```
 
-**Status Code:** `200 OK` | `401 Unauthorized` | `404 Not Found` | `500 Server Error`
+**Status Code:** `200 OK` | `401 Unauthorized` | `500 Server Error`
+
+Note: Returns `200 OK` with empty data array and `count: 0` if conversation has no messages.
 
 ---
 
@@ -456,7 +465,7 @@ curl -H "x-api-key: secret-key" \
 - `waiting_for_followup` — Last message is outgoing, no customer reply yet
 - `closed` — Conversation marked as closed
 
-**Status Code:** `200 OK` | `401 Unauthorized` | `404 Not Found` | `500 Server Error`
+**Status Code:** `200 OK` | `401 Unauthorized` | `500 Server Error`
 
 ---
 
@@ -510,7 +519,10 @@ curl -H "x-api-key: secret-key" \
 **Error Cases:**
 ```json
 {
-  "error": "hours must be a non-negative number"
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "hours must be a non-negative number"
+  }
 }
 ```
 
@@ -567,13 +579,13 @@ curl -H "x-api-key: secret-key" \
 
 ## Error Codes
 
-| Status | Reason | Example |
-|--------|--------|---------|
-| 200 | Success | Data returned |
-| 400 | Bad Request | Invalid query parameters |
-| 401 | Unauthorized | Missing or invalid API key |
-| 404 | Not Found | Conversation/lead doesn't exist |
-| 500 | Server Error | Database or processing error |
+| Code | HTTP Status | Reason | Example |
+|------|-------------|--------|---------|
+| (none) | 200 | Success | Data returned successfully |
+| BAD_REQUEST | 400 | Invalid query parameters or request body | `{"error": {"code": "BAD_REQUEST", "message": "hours must be a non-negative number"}}` |
+| UNAUTHORIZED | 401 | Missing or invalid API key | `{"error": {"code": "UNAUTHORIZED", "message": "Invalid API key"}}` |
+| NOT_FOUND | 404 | Conversation/lead doesn't exist | `{"error": {"code": "NOT_FOUND", "message": "Conversation not found"}}` |
+| INTERNAL_ERROR | 500 | Database or processing error | `{"error": {"code": "INTERNAL_ERROR", "message": "Internal server error"}}` |
 
 ---
 

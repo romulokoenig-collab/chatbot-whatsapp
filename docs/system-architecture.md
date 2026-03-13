@@ -10,6 +10,7 @@ The Kommo WhatsApp Monitoring Backend is a Node.js/TypeScript service that captu
 - Query conversations with filtering (status, date range, contact/lead ID)
 - Identify stalled conversations for automation triggers (no response, no follow-up)
 - Capture outgoing messages via WhatsApp Cloud API message echoes (Phase A2)
+- Fetch full chat history from Kommo Chat History API with HMAC-SHA1 signing (Phase A3)
 
 ## Technology Stack
 
@@ -20,6 +21,7 @@ The Kommo WhatsApp Monitoring Backend is a Node.js/TypeScript service that captu
 | Web Framework | Express.js | 5.2+ |
 | Database | Supabase (PostgreSQL) | Latest |
 | Config Validation | Zod | 4.3+ |
+| Logging | Pino | 9.7+ |
 | Security | Helmet, CORS | Latest |
 | Testing | Vitest, Supertest | Latest |
 
@@ -28,14 +30,14 @@ The Kommo WhatsApp Monitoring Backend is a Node.js/TypeScript service that captu
 ### 1. Entry Point (`src/server.ts`)
 - Loads environment config (Zod schema validation)
 - Starts Express app on `PORT` (default: 3000)
-- Logs startup message with environment
+- Logs startup message with environment using Pino logger
 
 ### 2. Application Layer (`src/app.ts`)
 Middleware & route registration:
 - **Security:** Helmet (headers), CORS (cross-origin), body size limits (50kb)
 - **Public Routes:** `/webhooks`, `/health` (no auth required)
 - **Protected Routes:** `/api/*` (requires `x-api-key` header)
-- **Error Handler:** Global exception handling
+- **Error Handler:** Global exception handling using `AppError` class for structured error responses. Returns `{error: {code, message}}` format. Stack traces included in non-production environments only. Uses Pino logger for structured error logging.
 
 ### 3. Request Routing
 
@@ -112,10 +114,22 @@ GET /health
 
 **Error Handler** (`src/middleware/error-handler.ts`)
 - Catches all exceptions from routes
-- Returns 500 with error message
-- Logs to console for debugging
+- Uses `AppError` class for structured responses with `{error: {code, message}}` format
+- Stack traces included in non-production (via `stack` field) for debugging
+- Logs full error context to Pino logger with operation name and status code
 
-### 5. Webhook Processing Flow
+### 5. Logging Configuration
+
+**Pino Logger** (`src/config/logger.ts`)
+- Structured JSON logging framework
+- JSON output in production (optimized for log aggregation)
+- Pretty-printed in development for readability
+- Configurable via `LOG_LEVEL` env var (trace/debug/info/warn/error/fatal), defaults to `info`
+- Object-first pattern: `logger.info({ data }, "message")`
+- Replaces all `console.log/warn/error` calls throughout codebase
+- Includes process ID and ISO timestamps in all logs
+
+### 6. Webhook Processing Flow
 
 **WhatsApp Webhook Handler** (`src/webhooks/whatsapp-webhook-handler.ts`)
 
@@ -158,7 +172,7 @@ GET /health
 - Creates message ID mapping for echo ID tracking
 - Graceful error handling per echo (logs, continues)
 
-### 6. Data Layer
+### 7. Data Layer
 
 **Supabase Connection** (`src/config/supabase-client.ts`)
 - Initializes with `SUPABASE_URL` and service role key
@@ -169,10 +183,10 @@ GET /health
 
 | Table | Purpose | Key Columns |
 |-------|---------|------------|
-| `conversations` | Track unique chat sessions | `id`, `kommo_chat_id`, `contact_id`, `lead_id`, `status`, `last_message_at` |
+| `conversations` | Track unique chat sessions | `id`, `kommo_chat_id`, `contact_id`, `lead_id`, `status`, `last_message_at`, `last_incoming_at`, `last_outgoing_at` |
 | `messages` | Store individual messages | `id`, `conversation_id`, `kommo_message_id`, `direction`, `sender_type`, `content_type`, `text_content`, `media_url`, `created_at` |
 | `webhook_raw_log` | Audit trail of all webhooks | `id`, `source`, `event_type`, `status`, `payload`, `error_message`, `created_at` |
-| `message_id_mapping` | WhatsApp ↔ Kommo message ID tracking | `id`, `whatsapp_message_id`, `kommo_message_id`, `kommo_conversation_id`, `created_at` |
+| `message_id_mapping` | WhatsApp ↔ Kommo message ID tracking | `id`, `whatsapp_message_id`, `kommo_message_id`, `kommo_conversation_id`, `delivery_status`, `created_at` |
 
 **Enums:**
 - `conversation_status`: active, closed
@@ -181,7 +195,12 @@ GET /health
 - `content_type`: text, image, video, file, voice, location, sticker
 - `webhook_source`: kommo_standard, kommo_chatapi, meta
 
-### 7. Services Layer
+**Composite Indexes (Phase A3):**
+- `idx_conversations_status_last_incoming` — Partial index on `(status, last_incoming_at DESC)` where `status = 'active'`. Optimizes `getUnrespondedLeads()` queries.
+- `idx_conversations_status_last_outgoing` — Partial index on `(status, last_outgoing_at DESC)` where `status = 'active'`. Optimizes `getUnfollowedLeads()` queries.
+- `idx_conversations_contact_id` — Index on `kommo_contact_id` for API filtering.
+
+### 8. Services Layer
 
 **Conversation Service** (`src/services/conversation-service.ts`)
 - `upsertConversation()` — Create or update conversation record
@@ -196,8 +215,18 @@ GET /health
 - `getUnrespondedLeads()` — Find conversations where agent has not responded within N hours
 - `getUnfollowedLeads()` — Find conversations where customer has not replied within N hours
 - Joins conversations + messages to identify gaps
+- Uses composite indexes for performance
 
-### 8. Configuration
+**Kommo Chats API Client** (`src/services/kommo-chats-api-client.ts`, Phase A3)
+- `fetchChatHistory()` — Fetch full chat history from Kommo Chat History API
+- HMAC-SHA1 signing with MD5: `HMAC(secret, MD5("GET" + path))` per Kommo authentication spec
+- Auto-pagination with `offset_id` cursor, safety cap of `MAX_PAGES=20`
+- Uses shared `hmac-signature.ts` utilities (DRY principle)
+- Requires `KOMMO_SCOPE_ID` + `KOMMO_CHANNEL_SECRET` environment variables
+- Returns normalized `ChatHistoryMessage[]` with consistent format
+- Graceful error handling with logging
+
+### 9. Configuration
 
 **Environment Variables** (`src/config/environment-config.ts`)
 
@@ -209,6 +238,7 @@ GET /health
 | `SUPABASE_SERVICE_ROLE_KEY` | string | Yes | - | Service role key (full access) |
 | `API_KEY` | string | Yes | - | Secret key for protected routes |
 | `NODE_ENV` | enum | No | development | development \| production \| test |
+| `LOG_LEVEL` | enum | No | info | Pino log level (trace/debug/info/warn/error/fatal) |
 | `KOMMO_CHANNEL_ID` | string | No | - | Kommo ChatAPI channel ID (Phase A) |
 | `KOMMO_CHANNEL_SECRET` | string | No | - | Kommo ChatAPI channel secret for HMAC verification (Phase A) |
 | `KOMMO_SCOPE_ID` | string | No | - | Kommo account scope ID for ChatAPI (Phase A) |
@@ -221,7 +251,7 @@ GET /health
 **Validation:**
 - Uses Zod for runtime validation
 - Fails fast on startup if missing required vars
-- Prints validation errors to console
+- Prints validation errors to stderr
 
 ## Deployment
 
@@ -251,7 +281,7 @@ Stage 2 (Production):
 ## Data Flow Examples
 
 ### Phase A2: WhatsApp Coexistence Message Echo (Outgoing)
-n> **Production Finding (2026-03-12):** `smb_message_echoes` only fires for messages sent via the WhatsApp Business App, NOT via Cloud API. Since Kommo sends via Cloud API, this echo flow does not trigger. Status tracking (sent/delivered/read) via the `messages` field webhook works correctly and is sufficient for automation triggers.
+> **Production Finding (2026-03-12):** `smb_message_echoes` only fires for messages sent via the WhatsApp Business App, NOT via Cloud API. Since Kommo sends via Cloud API, this echo flow does not trigger. Status tracking (sent/delivered/read) via the `messages` field webhook works correctly and is sufficient for automation triggers.
 
 ```
 Agent sends WhatsApp message via Kommo ChatAPI
@@ -381,16 +411,17 @@ POST /webhooks/kommo (raw payload)
 5. **Body Size Limit**: 50kb limit prevents large payload attacks
 6. **Non-Root Docker**: App runs as `app` user, not root
 7. **Write-Ahead Log**: All raw payloads logged before processing (audit trail, recovery)
-8. **Error Handling**: Don't expose sensitive info in error responses
+8. **Error Handling**: Structured error responses don't expose sensitive info. Stack traces only in non-production.
 9. **Webhook Signature Verification**: HMAC-SHA1 (Kommo) + X-Hub-Signature (WhatsApp)
 
 ## Performance Considerations
 
 1. **Async Processing**: Respond to webhooks immediately, process async after
 2. **Singleton Connections**: Supabase client reused across requests
-3. **Indexed Queries**: Database indexes on `kommo_chat_id`, `contact_id`, `lead_id`, `created_at`
+3. **Composite Indexes**: Partial indexes on `(status, last_incoming_at DESC)` and `(status, last_outgoing_at DESC)` for trigger queries
 4. **Body Size Limits**: 50kb prevents memory exhaustion
 5. **Connection Pooling**: Supabase manages PostgreSQL connection pool
+6. **Pagination Safety**: Chat history fetches cap at MAX_PAGES=20 to prevent runaway requests
 
 ## Scalability
 
@@ -401,18 +432,21 @@ POST /webhooks/kommo (raw payload)
 
 ## Error Handling Strategy
 
-1. **Webhook Logging**: Write-ahead log ensures no data loss on processing errors
-2. **Async Errors**: Logged to console, webhook marked with error status
-3. **Database Errors**: Propagated as 500 from routes
-4. **Validation Errors**: Return 400 with specific field errors
-5. **Auth Errors**: Return 401 for invalid API keys
+1. **Structured Errors**: Uses `AppError` class with code + message fields
+2. **Webhook Logging**: Write-ahead log ensures no data loss on processing errors
+3. **Async Errors**: Logged to Pino with context, webhook marked with error status
+4. **Database Errors**: Propagated as 500 from routes
+5. **Validation Errors**: Return 400 with specific field errors via AppError
+6. **Non-Production Debugging**: Stack traces included in error responses only in dev/test
 
 ## Monitoring & Observability
 
+- **Structured Logging**: Pino JSON logs in production enable log aggregation and querying
+- **Log Level Control**: Configurable via `LOG_LEVEL` env var for operational tuning
 - **Startup Logs**: Environment and port confirmation
-- **Webhook Processing**: Message count and error logging
+- **Webhook Processing**: Message count and error logging via logger
 - **Raw Log**: All webhooks stored with status (pending/processed/error)
-- **Error Details**: Error messages persisted in webhook_raw_log
+- **Error Details**: Error messages persisted in webhook_raw_log and logged to Pino
 - **Health Endpoint**: Simple GET /health check for uptime monitoring
 
 ## Related Documentation
