@@ -3,8 +3,8 @@
 ## Project Status Overview
 
 **Current Version:** 1.1.0-phase-a2
-**Last Updated:** 2026-03-12
-**Project Phase:** Phase A2 Deployed → Monitoring Live Traffic
+**Last Updated:** 2026-03-13
+**Project Phase:** Phase A3 In Progress — Awaiting Kommo Support for Chat Channel Registration
 
 ### Key Metrics
 
@@ -23,7 +23,7 @@
 
 ## Phase 1: MVP (Completed)
 
-**Status:** COMPLETE ✓
+**Status:** COMPLETE
 **Timeline:** Started 2026-01-15 → Deployed 2026-03-10
 **Live URL:** https://inicial-kommo-monitor.e8cf0x.easypanel.host
 
@@ -54,13 +54,13 @@
 
 ## Phase A: Bidirectional WhatsApp Bridge (Complete)
 
-**Status:** COMPLETE ✓ | PRODUCTION
+**Status:** COMPLETE | PRODUCTION
 **Timeline:** Development completed 2026-03-10 | Deployed 2026-03-10
 **Description:** Bidirectional message bridge between Kommo ChatAPI and WhatsApp Cloud API
 
 ## Phase A2: WhatsApp Coexistence Monitoring (Deployed)
 
-**Status:** DEPLOYED ✓ | MONITORING LIVE TRAFFIC
+**Status:** DEPLOYED | MONITORING LIVE TRAFFIC
 **Timeline:** Development completed 2026-03-11 | Deployed to production 2026-03-12
 **Description:** WhatsApp Cloud API message_echoes support for outgoing message capture and status mapping fallback
 
@@ -97,33 +97,74 @@
    - Signature verification via `WHATSAPP_APP_SECRET`
    - Health check: GET /health (passing)
 
-### Architecture
+---
+
+## Phase A3: Outgoing Message Content Capture (In Progress)
+
+**Status:** IN PROGRESS — Awaiting Kommo Support response for chat channel registration
+**Timeline:** Started 2026-03-12
+**Priority:** HIGH
+**Description:** Register private chat channel with Kommo to access Chats API for outgoing message content
+
+### Background & Investigation
+
+1. **ChatAPI credentials denied** (2026-03-12) — Kommo: credentials belong to integration provider
+2. **Private Integration created** (2026-03-13) — REST API v4 works, but no message content
+3. **`talks` scope doesn't exist** (2026-03-13) — Only 4 scopes available: `crm`, `notifications`, `files`, `files_delete`
+4. **REST API v4 insufficient** (2026-03-13) — `/api/v4/talks/{id}` = metadata only; events API = UUID only
+5. **Private chat channel registration requested** (2026-03-13) — Via Kommo support ticket
+
+### Key Finding: Two Separate API Systems
+
+| API Layer | Auth | Message Content? |
+|-----------|------|-----------------|
+| REST API v4 (`{subdomain}.kommo.com/api/v4/`) | OAuth Bearer token | NO — metadata only |
+| Chats API (`amojo.kommo.com`) | HMAC-SHA1 (scope_id + secret) | YES — full text + media |
+
+### Current Blocker
+
+Private chat channel registration requires Kommo Support approval (1-3 business days). Request submitted 2026-03-13.
+
+### Next Steps (After Kommo Approval)
+
+1. [ ] Receive `scope_id` + `channel_secret` from Kommo
+2. [ ] Test `GET amojo.kommo.com/v2/origin/custom/{scope_id}/chats/{conv_id}/history`
+3. [ ] Implement reactive polling: Meta `sent` status → Chats API call → store content
+4. [ ] Add HMAC-SHA1 signing for Chats API requests
+5. [ ] Store outgoing message content in `messages` table
+6. [ ] Add tests for new flow
+7. [ ] Deploy to production
+
+### Architecture (Planned — Post-Approval)
 
 ```
-Path 1: Coexistence (native, direct from WhatsApp)
-  WhatsApp Customer
-    ↓
-  WhatsApp Cloud API (messages + echoes)
-    ↓
-  POST /webhooks/whatsapp
-    ↓
-  Parse echo → Store outgoing + Create mapping
-    ↓
-  messages table (direction=outgoing)
-
-Path 2: ChatAPI (custom channel via Kommo)
-  WhatsApp Customer
-    ↓
-  Kommo ChatAPI (agent app)
-    ↓
-  POST /webhooks/chatapi/:scopeId
-    ↓
-  Bridge to WhatsApp Cloud API
-    ↓
-  WhatsApp Cloud API → Customer
+Meta webhook: status=sent + wamid
+  |
+  v
+Our Backend (POST /webhooks/whatsapp)
+  |
+  v
+Lookup conversation_id via message_id_mapping
+  |
+  v
+GET amojo.kommo.com/v2/origin/custom/{scope_id}/chats/{conv_id}/history
+  (HMAC-SHA1 signed request)
+  |
+  v
+Extract outgoing message content
+  |
+  v
+Store in messages table (direction=outgoing, text_content=...)
 ```
 
-Both paths active simultaneously. Echo (Coexistence) is primary source of outgoing message content.
+### Environment Variables
+
+```
+KOMMO_SUBDOMAIN=kfsa
+KOMMO_PRIVATE_TOKEN=<long-lived-token>
+KOMMO_SCOPE_ID=<from-channel-registration>
+KOMMO_CHANNEL_SECRET=<from-channel-registration>
+```
 
 ---
 
@@ -190,6 +231,7 @@ Both paths active simultaneously. Echo (Coexistence) is primary source of outgoi
 | No database indexes | High | Planned for Phase 3 | May cause slow queries at scale |
 | No caching layer | Medium | Backlog | Could add Redis for conversation queries |
 | No pagination cursor | Low | Planned for Phase 3 | Offset pagination only |
+| ChatAPI bridge dead code | Low | Open | Phase A ChatAPI code unused without credentials |
 
 ---
 
@@ -197,10 +239,11 @@ Both paths active simultaneously. Echo (Coexistence) is primary source of outgoi
 
 | Item | Type | Impact | Status |
 |------|------|--------|--------|
-| Supabase project | Infra | Blocking | ✓ In place |
-| Kommo API credentials | Infra | Blocking | ✓ Configured |
-| Meta WhatsApp Business Account | Infra | Blocking | ✓ Verified & Live |
-| Docker registry | Infra | Blocking | ✓ Ready for EasyPanel |
+| Supabase project | Infra | Blocking | In place |
+| Kommo API credentials | Infra | Blocking | Configured |
+| Meta WhatsApp Business Account | Infra | Blocking | Verified & Live |
+| Docker registry | Infra | Blocking | Ready for EasyPanel |
+| Kommo Chat Channel Registration | Infra | Blocking Phase A3 | Pending — awaiting Kommo Support approval (1-3 days) |
 
 ---
 
@@ -210,11 +253,11 @@ Both paths active simultaneously. Echo (Coexistence) is primary source of outgoi
 
 | Endpoint | Target | Current | Status |
 |----------|--------|---------|--------|
-| POST /webhooks/kommo | < 100ms | ~50ms | ✓ Good |
-| POST /webhooks/whatsapp | < 100ms | ~50ms | ✓ Good |
-| GET /api/conversations | < 500ms | ~200ms | ✓ Good |
-| GET /api/conversations/*/messages | < 500ms | ~150ms | ✓ Good |
-| GET /api/triggers/* | < 1000ms | ~300ms | ✓ Good |
+| POST /webhooks/kommo | < 100ms | ~50ms | Good |
+| POST /webhooks/whatsapp | < 100ms | ~50ms | Good |
+| GET /api/conversations | < 500ms | ~200ms | Good |
+| GET /api/conversations/*/messages | < 500ms | ~150ms | Good |
+| GET /api/triggers/* | < 1000ms | ~300ms | Good |
 
 ---
 
@@ -236,6 +279,11 @@ Both paths active simultaneously. Echo (Coexistence) is primary source of outgoi
 - Features: WhatsApp Coexistence message_echoes support, status mapping fallback, phone normalization
 - Tests: 66/66 passing
 - Breaking Changes: WHATSAPP_APP_SECRET now required
+
+### Version 1.1.0-phase-a3 (In Progress)
+- ETA: 2026-03-17 (depends on Kommo approval)
+- Features: Chats API integration for outgoing message content capture
+- Dependency: Chat channel registration approval from Kommo Support
 
 ### Version 1.1.0 (Phase 2)
 - ETA: 2026-04-30
@@ -259,6 +307,8 @@ Both paths active simultaneously. Echo (Coexistence) is primary source of outgoi
 | 2026-03-10 | 1.1 | Added Phase A (bidirectional bridge) |
 | 2026-03-11 | 1.2 | Phase A2 code complete, 66/66 tests |
 | 2026-03-12 | 1.3 | Phase A2 deployed to production, live monitoring |
+| 2026-03-13 | 1.4 | Phase A3: Kommo Private Integration investigation, API testing results |
+| 2026-03-13 | 1.5 | Phase A3: talks scope doesn't exist, pivoted to Chats API channel registration |
 
 ---
 
@@ -269,13 +319,28 @@ Both paths active simultaneously. Echo (Coexistence) is primary source of outgoi
 - [API Documentation](./api-docs.md) — Available endpoints
 - [Project Changelog](./project-changelog.md) — Version history
 
-### Production Findings (2026-03-12)
+### Production Findings
 
-**Echo Limitation:** `smb_message_echoes` only fires for messages sent via the WhatsApp Business App (mobile/desktop), NOT for messages sent via Cloud API by BSPs like Kommo. Since Kommo sends messages through the Cloud API, outgoing message **content** is not captured via echoes.
+#### Echo Limitation (2026-03-12)
 
-**What works:**
-- Incoming messages: captured via both Meta webhook (`messages` field) and Kommo standard webhook
-- Status tracking: `sent → delivered → read` cycle captured in `message_id_mapping`
-- Kommo outgoing events: captured via Kommo standard webhook (direction, timestamp)
+`smb_message_echoes` only fires for messages sent via the WhatsApp Business App (mobile/desktop), NOT for messages sent via Cloud API by BSPs like Kommo. Since Kommo sends messages through the Cloud API, outgoing message content is not captured via echoes.
 
-**Conclusion:** Status tracking + Kommo standard webhooks are sufficient for automation triggers (no-response, no-followup, reengagement). Echo content capture is a nice-to-have, not a blocker.
+#### Kommo ChatAPI Credentials Denied (2026-03-12)
+
+Kommo support confirmed: ChatAPI credentials belong to the integration provider and are not shared. There is no officially supported method to access other integrations' chat history. ChatAPI is designed for creating your own chat integration. Request added to development wishlist.
+
+#### Kommo REST API v4 — No Message Content (2026-03-13)
+
+Private Integration created successfully. REST API v4 works with long-lived token. However, **no REST API endpoint returns message text content**:
+- `/api/v4/talks/{id}` — metadata only (ID, status, participants)
+- `/api/v4/events?filter[type]=outgoing_chat_message` — message UUID only, no text
+- `talks` scope does not exist in Kommo's permission system (only: crm, notifications, files, files_delete)
+
+Message text is exclusively available via the **Chats API** (`amojo.kommo.com`), which requires a registered chat channel with `scope_id` + `channel_secret`. Private chat channel registration requested 2026-03-13.
+
+**What works now:**
+- Incoming messages: captured via Meta webhook + Kommo standard webhook
+- Status tracking: `sent -> delivered -> read` cycle captured in `message_id_mapping`
+- Kommo outgoing events: metadata only (message_id, talk_id, timestamps) — no content
+
+**Conclusion:** Status tracking + Kommo standard webhooks sufficient for automation triggers. Full outgoing message content capture requires Chats API access via registered chat channel.

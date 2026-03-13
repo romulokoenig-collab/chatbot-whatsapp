@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [1.1.0-phase-a3] - 2026-03-13 (In Progress)
+
+**Status:** In Progress — Awaiting Kommo Support for chat channel registration
+
+### Investigation: Outgoing Message Content Capture
+
+#### Context
+Kommo support denied ChatAPI credentials (2026-03-12): credentials belong to the integration provider. Private Integration created and REST API v4 tested (2026-03-13), but no endpoint returns message text content.
+
+#### Added
+- Kommo Private Integration created (ID: `88dbbf59-745e-4f8c-8f7c-8eff4178a409`)
+- Long-lived JWT token generated (expires 2031)
+- `.env.example` updated with `KOMMO_SUBDOMAIN` and `KOMMO_PRIVATE_TOKEN` placeholders
+
+#### Investigation Results (2026-03-13)
+
+**REST API v4 Testing:**
+
+| Endpoint | HTTP | Result |
+|----------|------|--------|
+| `GET /api/v4/account?with=amojo_id` | 200 | Account info + amojo_id |
+| `GET /api/v4/talks?limit=3` | 200 | Talk metadata only — no message content |
+| `GET /api/v4/events?filter[type]=outgoing_chat_message` | 200 | Message UUID only — no text |
+| `GET /api/v4/talks/{id}/messages` | **403** | **`Invalid scope`** |
+| `GET /api/v4/leads/{id}/notes` | 204 | Empty |
+
+**Key Finding:** `talks` scope does NOT exist in Kommo's permission system. Only 4 scopes available for any integration type: `crm`, `notifications`, `files`, `files_delete`. No REST API v4 endpoint returns message text content.
+
+**Two API Systems in Kommo:**
+
+| API | Auth | Returns Message Text? |
+|-----|------|-----------------------|
+| REST API v4 (`{subdomain}.kommo.com/api/v4/`) | OAuth Bearer token | NO |
+| Chats API (`amojo.kommo.com`) | HMAC-SHA1 (scope_id + secret) | YES |
+
+#### Dead Ends (Confirmed)
+1. `talks` scope — doesn't exist in Kommo
+2. Events API `with=message_text` — 400 "Invalid with parameter"
+3. Notes API on leads/contacts — 204 empty
+4. Private Integration scope dropdown — only 4 scopes, no `talks`
+5. REST API talks endpoint — metadata only, never returns message text
+6. Kommo widgets UI — Private Integrations not visible in standard list
+
+#### Pivot: Private Chat Channel Registration
+Submitted request to Kommo Support (2026-03-13) to register a private chat channel linked to our Private Integration. This is distinct from the denied ChatAPI credentials request — this creates a NEW channel for our integration.
+
+#### Next Steps
+1. Receive `scope_id` + `channel_secret` from Kommo (1-3 business days)
+2. Test Chats API history endpoint
+3. Implement reactive content capture
+4. Deploy
+
+---
+
 ## [1.1.0-phase-a2] - 2026-03-12
 
 **Status:** Deployed to Production (Monitoring Live Traffic)
@@ -66,25 +120,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ```
 Path 1: Coexistence (native, direct from WhatsApp)
   WhatsApp Customer
-    ↓
+    |
   WhatsApp Cloud API (messages + echoes)
-    ↓
+    |
   POST /webhooks/whatsapp
-    ↓
-  Parse echo → Store outgoing + Create mapping
-    ↓
+    |
+  Parse echo -> Store outgoing + Create mapping
+    |
   messages table (direction=outgoing)
 
 Path 2: ChatAPI (custom channel via Kommo)
   WhatsApp Customer
-    ↓
+    |
   Kommo ChatAPI (agent app)
-    ↓
+    |
   POST /webhooks/chatapi/:scopeId
-    ↓
+    |
   Bridge to WhatsApp Cloud API
-    ↓
-  WhatsApp Cloud API → Customer
+    |
+  WhatsApp Cloud API -> Customer
 ```
 
 Both paths active simultaneously.
@@ -124,8 +178,8 @@ Both paths active simultaneously.
 
 #### Message Bridging Infrastructure
 - Bidirectional message forwarding service (`message-bridge-service.ts`)
-  - `bridgeWhatsAppToKommo()` — Route incoming WhatsApp → Kommo ChatAPI
-  - `bridgeKommoToWhatsApp()` — Route outgoing Kommo → WhatsApp Cloud API
+  - `bridgeWhatsAppToKommo()` — Route incoming WhatsApp -> Kommo ChatAPI
+  - `bridgeKommoToWhatsApp()` — Route outgoing Kommo -> WhatsApp Cloud API
 - Message ID mapping service (`message-mapping-service.ts`)
   - Stores correspondence between WhatsApp message IDs and Kommo message IDs
   - Enables two-way message tracking for audit and reconciliation
@@ -168,41 +222,28 @@ Both paths active simultaneously.
 
 **Message Flow (Phase A):**
 ```
-┌─ WhatsApp Cloud API ─┐
-│  (customer messages) │
-└──────────┬───────────┘
-           ↓
+WhatsApp Cloud API (customer messages)
+           |
     GET /webhooks/whatsapp (verify)
     POST /webhooks/whatsapp (incoming)
-           ↓
-   ┌───────────────────┐
-   │ Our Backend Server│
-   │ ├─ Parse message  │
-   │ ├─ Store in DB    │
-   │ └─ Bridge to      │
-   │    Kommo ChatAPI  │
-   └────────┬──────────┘
-            ↓
-┌──── Kommo ChatAPI ────┐
-│ (agent sees message)  │
-└──────────┬────────────┘
-           ↓
-  Agent sends reply
-  (outgoing message)
-           ↓
+           |
+   Our Backend Server
+   - Parse message
+   - Store in DB
+   - Bridge to Kommo ChatAPI
+            |
+   Kommo ChatAPI (agent sees message)
+           |
+  Agent sends reply (outgoing message)
+           |
 POST /webhooks/chatapi/:scopeId
-           ↓
-   ┌───────────────────┐
-   │ Our Backend Server│
-   │ ├─ Parse message  │
-   │ ├─ Store in DB    │
-   │ └─ Bridge to      │
-   │    WhatsApp       │
-   └────────┬──────────┘
-            ↓
-┌─ WhatsApp Cloud API ─┐
-│ (customer receives) │
-└──────────────────────┘
+           |
+   Our Backend Server
+   - Parse message
+   - Store in DB
+   - Bridge to WhatsApp
+            |
+   WhatsApp Cloud API (customer receives)
 ```
 
 ### Security (Phase A)
@@ -231,8 +272,8 @@ POST /webhooks/chatapi/:scopeId
 - 17 real WhatsApp incoming messages captured and processed successfully
 
 ### Tested
-- **Incoming messages (customer→agent): PASS** — All captured with correct direction, sender_type, text_content
-- **Outgoing messages (agent→customer): FAIL** — Kommo does NOT send webhooks for agent replies
+- **Incoming messages (customer->agent): PASS** — All captured with correct direction, sender_type, text_content
+- **Outgoing messages (agent->customer): FAIL** — Kommo does NOT send webhooks for agent replies
 - **Decision: Phase B (standard webhooks) insufficient** — Phase A (ChatAPI) required for bidirectional capture
 
 ### Known Limitations
@@ -368,6 +409,7 @@ POST /webhooks/chatapi/:scopeId
 | 1.0.0 | 2026-03-10 | Released | MVP - Standard Webhooks Only |
 | 1.1.0-phase-a | 2026-03-10 | Released | Phase A - Bidirectional Bridge |
 | 1.1.0-phase-a2 | 2026-03-12 | Released | Phase A2 - Coexistence Support |
+| 1.1.0-phase-a3 | 2026-03-13 | In Progress | Phase A3 - Chats API Channel Registration |
 | 1.1.0 | Planned: 2026-04-15 | Backlog | Phase 2 - Enhancements |
 | 1.2.0 | Planned: 2026-05-15 | Backlog | Phase 3 - Advanced Filtering |
 | 2.0.0 | Planned: 2026-07-01 | Backlog | Phase 4 - Analytics |
@@ -384,6 +426,9 @@ POST /webhooks/chatapi/:scopeId
 
 ### Version 1.1.0-phase-a2
 - `WHATSAPP_APP_SECRET` now required (was optional)
+
+### Version 1.1.0-phase-a3
+- New env vars: `KOMMO_SUBDOMAIN`, `KOMMO_PRIVATE_TOKEN` (optional, only for outgoing content)
 
 ### Version 1.1.0 (Planned)
 - No breaking changes expected
@@ -410,6 +455,11 @@ POST /webhooks/chatapi/:scopeId
 - `WHATSAPP_APP_SECRET` must be configured in .env
 - Redeploy Docker image with updated environment
 
+### Upgrading from 1.1.0-phase-a2 to 1.1.0-phase-a3
+- No database migrations required
+- Add `KOMMO_SUBDOMAIN` and `KOMMO_PRIVATE_TOKEN` to .env (optional)
+- After Kommo approval: add `KOMMO_SCOPE_ID` and `KOMMO_CHANNEL_SECRET`
+
 ### Upgrading to 2.0.0
 - Database migration guide will be provided
 - API response format may change
@@ -425,6 +475,8 @@ POST /webhooks/chatapi/:scopeId
 | #002 | High | Database | Open | Missing composite indexes on (status, created_at) |
 | #003 | Low | Error Messages | Open | Generic 500 errors, could be more specific |
 | #004 | Low | Pagination | Open | Offset pagination only, no cursor support |
+| #005 | High | Kommo API | Blocked | No REST API endpoint returns message text; Chats API requires channel registration |
+| #006 | Low | Dead Code | Open | ChatAPI bridge code unused without credentials |
 
 ---
 
@@ -459,10 +511,12 @@ POST /webhooks/chatapi/:scopeId
 |------|---------|---------|
 | 2026-03-10 | 1.0 | Created initial changelog after MVP completion |
 | 2026-03-10 | 1.1 | Updated with production deployment confirmation |
-| 2026-03-11 | 1.2 | Phase 6 integration test results: incoming PASS, outgoing FAIL → Phase A needed |
-| 2026-03-10 | 1.3 | Phase A implementation complete: bidirectional bridge, ChatAPI + WhatsApp Cloud API |
-| 2026-03-11 | 1.4 | Phase A2 implementation complete: Coexistence message_echoes support, 66/66 tests passing |
-| 2026-03-12 | 1.5 | Phase A2 deployed to production: Meta webhook configured, live monitoring active |
+| 2026-03-11 | 1.2 | Phase 6 integration test results: incoming PASS, outgoing FAIL |
+| 2026-03-10 | 1.3 | Phase A implementation complete: bidirectional bridge |
+| 2026-03-11 | 1.4 | Phase A2 implementation complete: Coexistence message_echoes |
+| 2026-03-12 | 1.5 | Phase A2 deployed to production |
+| 2026-03-13 | 1.6 | Phase A3: Kommo Private Integration investigation, API testing |
+| 2026-03-13 | 1.7 | Phase A3: talks scope doesn't exist, pivoted to Chats API channel registration |
 
 ---
 
