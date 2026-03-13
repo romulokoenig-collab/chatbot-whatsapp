@@ -1,6 +1,8 @@
 import { Router } from "express";
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
+import { logger } from "../config/logger.js";
 import { supabase } from "../config/supabase-client.js";
+import { AppError } from "../utils/app-error.js";
 
 export const conversationRoutes = Router();
 
@@ -14,15 +16,13 @@ function parsePagination(query: Record<string, unknown>, defaults = { limit: 50,
 }
 
 /** GET /api/conversations — list conversations with filters */
-conversationRoutes.get("/conversations", async (req: Request, res: Response) => {
+conversationRoutes.get("/conversations", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { lead_id, status, since } = req.query;
     const { limit, offset } = parsePagination(req.query as Record<string, unknown>);
 
-    // H2: validate status against enum
     if (status && !VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
-      res.status(400).json({ error: `Invalid status. Allowed: ${VALID_STATUSES.join(", ")}` });
-      return;
+      throw AppError.badRequest(`Invalid status. Allowed: ${VALID_STATUSES.join(", ")}`);
     }
 
     let query = supabase
@@ -39,19 +39,18 @@ conversationRoutes.get("/conversations", async (req: Request, res: Response) => 
     const { data, error } = await query;
 
     if (error) {
-      res.status(500).json({ error: error.message });
-      return;
+      logger.error({ err: error }, "[conversations] DB error");
+      throw AppError.internal(error.message);
     }
 
     res.json({ data, count: data?.length ?? 0 });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    next(err);
   }
 });
 
 /** GET /api/conversations/:id/messages — message history for a conversation */
-conversationRoutes.get("/conversations/:id/messages", async (req: Request, res: Response) => {
+conversationRoutes.get("/conversations/:id/messages", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { limit, offset } = parsePagination(req.query as Record<string, unknown>, { limit: 100, maxLimit: 500 });
@@ -65,19 +64,22 @@ conversationRoutes.get("/conversations/:id/messages", async (req: Request, res: 
       .range(offset, offset + limit - 1);
 
     if (error) {
-      res.status(500).json({ error: error.message });
-      return;
+      logger.error({ err: error }, "[messages] DB error");
+      throw AppError.internal(error.message);
     }
 
-    res.json({ data, count: data?.length ?? 0 });
+    if (!data || data.length === 0) {
+      throw AppError.notFound(`Conversation ${id} not found`);
+    }
+
+    res.json({ data, count: data.length });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    next(err);
   }
 });
 
 /** GET /api/leads/:kommoLeadId/status — lead response status */
-conversationRoutes.get("/leads/:kommoLeadId/status", async (req: Request, res: Response) => {
+conversationRoutes.get("/leads/:kommoLeadId/status", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { kommoLeadId } = req.params;
 
@@ -87,13 +89,12 @@ conversationRoutes.get("/leads/:kommoLeadId/status", async (req: Request, res: R
       .eq("kommo_lead_id", kommoLeadId);
 
     if (error) {
-      res.status(500).json({ error: error.message });
-      return;
+      logger.error({ err: error }, "[leads/status] DB error");
+      throw AppError.internal(error.message);
     }
 
     if (!data || data.length === 0) {
-      res.status(404).json({ error: "Lead not found" });
-      return;
+      throw AppError.notFound("Lead not found");
     }
 
     const conv = data[0];
@@ -103,7 +104,6 @@ conversationRoutes.get("/leads/:kommoLeadId/status", async (req: Request, res: R
 
     res.json({ ...conv, responded });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    next(err);
   }
 });

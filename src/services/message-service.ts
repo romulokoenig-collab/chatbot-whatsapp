@@ -1,4 +1,5 @@
 import { supabase } from "../config/supabase-client.js";
+import { logger } from "../config/logger.js";
 import type { NormalizedMessage } from "../types/kommo-webhook-types.js";
 
 /** Insert message with dedup on kommo_message_id. Returns true if inserted, false if duplicate. */
@@ -26,7 +27,7 @@ export async function insertMessage(
     .select("id");
 
   if (error) {
-    console.error("[MessageService] Failed to insert message:", error.message);
+    logger.error({ err: error }, "[MessageService] Failed to insert message");
     throw error;
   }
 

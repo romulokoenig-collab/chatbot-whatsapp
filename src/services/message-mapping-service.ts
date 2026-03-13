@@ -1,4 +1,5 @@
 import { supabase } from "../config/supabase-client.js";
+import { logger } from "../config/logger.js";
 import type { DeliveryStatus } from "../types/database-types.js";
 
 /** Create a message ID mapping between WhatsApp and Kommo */
@@ -21,7 +22,7 @@ export async function createMapping(data: {
     .single();
 
   if (error) {
-    console.error("[MappingService] Failed to create mapping:", error.message);
+    logger.error({ err: error }, "[MappingService] Failed to create mapping");
     throw error;
   }
 
@@ -47,7 +48,7 @@ export async function updateDeliveryStatus(
     .eq("whatsapp_message_id", whatsappMessageId);
 
   if (error) {
-    console.error("[MappingService] Failed to update delivery status:", error.message);
+    logger.error({ err: error }, "[MappingService] Failed to update delivery status");
   }
 }
 
@@ -61,7 +62,7 @@ export async function findByWhatsAppId(whatsappMessageId: string) {
     .maybeSingle();
 
   if (error) {
-    console.error("[MappingService] Lookup by WhatsApp ID failed:", error.message);
+    logger.error({ err: error }, "[MappingService] Lookup by WhatsApp ID failed");
     return null;
   }
 
@@ -78,7 +79,7 @@ export async function findByKommoId(kommoMessageId: string) {
     .maybeSingle();
 
   if (error) {
-    console.error("[MappingService] Lookup by Kommo ID failed:", error.message);
+    logger.error({ err: error }, "[MappingService] Lookup by Kommo ID failed");
     return null;
   }
 

@@ -1,3 +1,4 @@
+import { logger } from "../config/logger.js";
 import { env } from "../config/environment-config.js";
 import { generateChatApiHeaders } from "../utils/hmac-signature.js";
 
@@ -31,7 +32,7 @@ export async function sendMessageToKommo(data: {
   const channelSecret = env.KOMMO_CHANNEL_SECRET;
 
   if (!scopeId || !channelSecret) {
-    console.warn("[KommoChatAPI] Missing KOMMO_SCOPE_ID or KOMMO_CHANNEL_SECRET");
+    logger.warn("[KommoChatAPI] Missing KOMMO_SCOPE_ID or KOMMO_CHANNEL_SECRET");
     return null;
   }
 
@@ -65,12 +66,12 @@ export async function sendMessageToKommo(data: {
 
     if (!response.ok) {
       const text = await response.text();
-      console.error(`[KommoChatAPI] Send failed (${response.status}):`, text);
+      logger.error({ status: response.status, body: text }, "[KommoChatAPI] Send failed");
       return null;
     }
 
     const result = (await response.json()) as Record<string, unknown>;
-    console.log("[KommoChatAPI] Message sent:", data.messageId);
+    logger.info({ messageId: data.messageId }, "[KommoChatAPI] Message sent");
 
     return {
       kommoMessageId: String(
@@ -78,7 +79,7 @@ export async function sendMessageToKommo(data: {
       ),
     };
   } catch (err) {
-    console.error("[KommoChatAPI] Send error:", err instanceof Error ? err.message : err);
+    logger.error({ err }, "[KommoChatAPI] Send error");
     return null;
   }
 }

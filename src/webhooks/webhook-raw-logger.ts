@@ -1,4 +1,5 @@
 import { supabase } from "../config/supabase-client.js";
+import { logger } from "../config/logger.js";
 import type { WebhookSource } from "../types/database-types.js";
 
 /** Strip sensitive headers before logging */
@@ -27,7 +28,7 @@ export async function logRawWebhook(
     .single();
 
   if (error) {
-    console.error("[WebhookRawLogger] Failed to log raw webhook:", error.message);
+    logger.error({ err: error }, "[WebhookRawLogger] Failed to log raw webhook");
     throw error;
   }
 
@@ -42,7 +43,7 @@ export async function markProcessed(id: string): Promise<void> {
     .eq("id", id);
 
   if (error) {
-    console.error("[WebhookRawLogger] Failed to mark processed:", error.message);
+    logger.error({ err: error }, "[WebhookRawLogger] Failed to mark processed");
   }
 }
 
@@ -54,6 +55,6 @@ export async function markError(id: string, errorMessage: string): Promise<void>
     .eq("id", id);
 
   if (error) {
-    console.error("[WebhookRawLogger] Failed to mark error:", error.message);
+    logger.error({ err: error }, "[WebhookRawLogger] Failed to mark error");
   }
 }

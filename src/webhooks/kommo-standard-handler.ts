@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import { logger } from "../config/logger.js";
 import { logRawWebhook, markProcessed, markError } from "./webhook-raw-logger.js";
 import { upsertConversation } from "../services/conversation-service.js";
 import { insertMessage } from "../services/message-service.js";
@@ -24,7 +25,7 @@ kommoWebhookRouter.post("/kommo", async (req: Request, res: Response) => {
     // Respond 200 immediately — Kommo expects fast response
     res.status(200).json({ ok: true });
   } catch (err) {
-    console.error("[KommoHandler] Failed to log raw webhook:", err);
+    logger.error({ err }, "[KommoHandler] Failed to log raw webhook");
     res.status(200).json({ ok: true }); // Still 200 to prevent Kommo retries
     return;
   }
@@ -46,10 +47,10 @@ kommoWebhookRouter.post("/kommo", async (req: Request, res: Response) => {
     }
 
     if (logId) await markProcessed(logId);
-    console.log(`[KommoHandler] Processed ${messages.length} message(s)`);
+    logger.info({ count: messages.length }, "[KommoHandler] Processed messages");
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error("[KommoHandler] Processing error:", errorMsg);
+    logger.error({ err }, "[KommoHandler] Processing error");
     if (logId) await markError(logId, errorMsg);
   }
 });

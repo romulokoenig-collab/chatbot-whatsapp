@@ -1,4 +1,5 @@
 import { supabase } from "../config/supabase-client.js";
+import { logger } from "../config/logger.js";
 
 /**
  * Get conversations where customer sent a message but no agent reply in N hours.
@@ -16,7 +17,7 @@ export async function getUnrespondedLeads(hours: number) {
     .lt("last_incoming_at", cutoff);
 
   if (error) {
-    console.error("[TriggerService] getUnrespondedLeads error:", error.message);
+    logger.error({ err: error }, "[TriggerService] getUnrespondedLeads error");
     throw error;
   }
 
@@ -43,7 +44,7 @@ export async function getUnfollowedLeads(hours: number) {
     .lt("last_outgoing_at", cutoff);
 
   if (error) {
-    console.error("[TriggerService] getUnfollowedLeads error:", error.message);
+    logger.error({ err: error }, "[TriggerService] getUnfollowedLeads error");
     throw error;
   }
 

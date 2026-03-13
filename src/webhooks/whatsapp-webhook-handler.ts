@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { timingSafeEqual } from "crypto";
+import { logger } from "../config/logger.js";
 import { env } from "../config/environment-config.js";
 import { verifyWhatsAppSignature } from "../utils/hmac-signature.js";
 import { logRawWebhook, markProcessed, markError } from "./webhook-raw-logger.js";
@@ -27,12 +28,12 @@ whatsAppWebhookRouter.get("/whatsapp", (req: Request, res: Response) => {
     && timingSafeEqual(Buffer.from(token), Buffer.from(verifyToken));
 
   if (tokenMatch) {
-    console.log("[WhatsApp] Verification challenge accepted");
+    logger.info("[WhatsApp] Verification challenge accepted");
     res.status(200).send(challenge);
     return;
   }
 
-  console.warn("[WhatsApp] Verification failed — wrong token");
+  logger.warn("[WhatsApp] Verification failed — wrong token");
   res.status(403).send("Forbidden");
 });
 
@@ -43,7 +44,7 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
   const rawBody = (req as unknown as Record<string, unknown>).rawBody as string | undefined;
 
   if (!rawBody || !signature || !verifyWhatsAppSignature(rawBody, env.WHATSAPP_APP_SECRET, signature)) {
-    console.warn("[WhatsApp] Invalid signature or missing rawBody, rejecting webhook");
+    logger.warn("[WhatsApp] Invalid signature or missing rawBody, rejecting webhook");
     res.status(200).send(); // Silent reject (standard webhook practice)
     return;
   }
@@ -59,7 +60,7 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
     );
     res.status(200).json({ ok: true });
   } catch (err) {
-    console.error("[WhatsApp] Failed to log raw webhook:", err);
+    logger.error({ err }, "[WhatsApp] Failed to log raw webhook");
     res.status(200).json({ ok: true });
     return;
   }
@@ -109,7 +110,7 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
               });
             }
           } catch (err) {
-            console.error(`[WhatsApp] Status processing error for ${status.id}:`, err);
+            logger.error({ err, statusId: status.id }, "[WhatsApp] Status processing error");
           }
         }
 
@@ -163,7 +164,7 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
               processedCount++;
             }
           } catch (err) {
-            console.error(`[WhatsApp] Echo processing error for ${echo.id}:`, err);
+            logger.error({ err, echoId: echo.id }, "[WhatsApp] Echo processing error");
           }
         }
       }
@@ -171,11 +172,11 @@ whatsAppWebhookRouter.post("/whatsapp", async (req: Request, res: Response) => {
 
     if (logId) await markProcessed(logId);
     if (processedCount > 0) {
-      console.log(`[WhatsApp] Processed ${processedCount} message(s)`);
+      logger.info({ count: processedCount }, "[WhatsApp] Processed messages");
     }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error("[WhatsApp] Processing error:", errorMsg);
+    logger.error({ err }, "[WhatsApp] Processing error");
     if (logId) await markError(logId, errorMsg);
   }
 });

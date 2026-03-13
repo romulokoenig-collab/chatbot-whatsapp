@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import { logger } from "../config/logger.js";
 import { env } from "../config/environment-config.js";
 import { verifyHmacSha1 } from "../utils/hmac-signature.js";
 import { logRawWebhook, markProcessed, markError } from "./webhook-raw-logger.js";
@@ -17,7 +18,7 @@ chatApiWebhookRouter.post("/chatapi/:scopeId", async (req: Request, res: Respons
   const channelSecret = env.KOMMO_CHANNEL_SECRET;
 
   if (!channelSecret) {
-    console.warn("[ChatAPI] KOMMO_CHANNEL_SECRET not configured, rejecting webhook");
+    logger.warn("[ChatAPI] KOMMO_CHANNEL_SECRET not configured, rejecting webhook");
     res.status(503).json({ error: "ChatAPI not configured" });
     return;
   }
@@ -28,7 +29,7 @@ chatApiWebhookRouter.post("/chatapi/:scopeId", async (req: Request, res: Respons
     ?? JSON.stringify(req.body);
 
   if (!signature || !verifyHmacSha1(rawBody, channelSecret, signature)) {
-    console.warn("[ChatAPI] Invalid signature, rejecting webhook");
+    logger.warn("[ChatAPI] Invalid signature, rejecting webhook");
     res.status(200).send(); // Silent reject per Kommo docs
     return;
   }
@@ -44,7 +45,7 @@ chatApiWebhookRouter.post("/chatapi/:scopeId", async (req: Request, res: Respons
     );
     res.status(200).json({ ok: true });
   } catch (err) {
-    console.error("[ChatAPI] Failed to log raw webhook:", err);
+    logger.error({ err }, "[ChatAPI] Failed to log raw webhook");
     res.status(200).json({ ok: true });
     return;
   }
@@ -73,10 +74,10 @@ chatApiWebhookRouter.post("/chatapi/:scopeId", async (req: Request, res: Respons
     }
 
     if (logId) await markProcessed(logId);
-    console.log("[ChatAPI] Processed outgoing message:", parsed.kommoMessageId);
+    logger.info({ messageId: parsed.kommoMessageId }, "[ChatAPI] Processed outgoing message");
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error("[ChatAPI] Processing error:", errorMsg);
+    logger.error({ err }, "[ChatAPI] Processing error");
     if (logId) await markError(logId, errorMsg);
   }
 });

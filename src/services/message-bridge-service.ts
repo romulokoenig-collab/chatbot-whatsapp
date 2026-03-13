@@ -1,3 +1,4 @@
+import { logger } from "../config/logger.js";
 import { sendMessageToKommo } from "./kommo-chatapi-client.js";
 import { sendTextToWhatsApp, sendMediaToWhatsApp } from "./whatsapp-api-client.js";
 import { createMapping } from "./message-mapping-service.js";
@@ -29,7 +30,7 @@ export async function bridgeWhatsAppToKommo(
       });
     }
   } catch (err) {
-    console.error("[Bridge] WhatsApp→Kommo failed:", err instanceof Error ? err.message : err);
+    logger.error({ err }, "[Bridge] WhatsApp->Kommo failed");
   }
 }
 
@@ -45,7 +46,7 @@ export async function bridgeKommoToWhatsApp(
     const phone = receiver?.phone as string | undefined;
 
     if (!phone) {
-      console.warn("[Bridge] No receiver phone in ChatAPI payload, skipping WhatsApp send");
+      logger.warn("[Bridge] No receiver phone in ChatAPI payload, skipping WhatsApp send");
       return;
     }
 
@@ -76,7 +77,7 @@ export async function bridgeKommoToWhatsApp(
       });
     }
   } catch (err) {
-    console.error("[Bridge] Kommo→WhatsApp failed:", err instanceof Error ? err.message : err);
+    logger.error({ err }, "[Bridge] Kommo->WhatsApp failed");
   }
 }
 

@@ -45,11 +45,13 @@ afterEach(() => {
 async function buildApp() {
   const { apiAuthMiddleware } = await import("../middleware/api-auth-middleware.js");
   const { triggerRoutes } = await import("../api/trigger-routes.js");
+  const { errorHandler } = await import("../middleware/error-handler.js");
 
   const app = express();
   app.use(express.json());
   app.use("/api", apiAuthMiddleware);
   app.use("/api", triggerRoutes);
+  app.use(errorHandler);
   return app;
 }
 
@@ -106,7 +108,7 @@ describe("GET /api/triggers/no-response", () => {
       .set("x-api-key", "test-api-key");
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/hours/i);
+    expect(res.body.error.message).toMatch(/hours/i);
   });
 
   it("returns 400 when hours is negative", async () => {
@@ -127,7 +129,7 @@ describe("GET /api/triggers/no-response", () => {
       .set("x-api-key", "test-api-key");
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toContain("DB connection failed");
+    expect(res.body.error.code).toBe("INTERNAL_ERROR");
   });
 
   it("returns empty data array and count=0 when no leads found", async () => {
@@ -189,7 +191,7 @@ describe("GET /api/triggers/no-followup", () => {
       .set("x-api-key", "test-api-key");
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/hours/i);
+    expect(res.body.error.message).toMatch(/hours/i);
   });
 
   it("returns 400 when hours is negative", async () => {
@@ -210,7 +212,7 @@ describe("GET /api/triggers/no-followup", () => {
       .set("x-api-key", "test-api-key");
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toContain("timeout");
+    expect(res.body.error.code).toBe("INTERNAL_ERROR");
   });
 
   it("accepts hours=0 as valid (boundary value)", async () => {

@@ -1,3 +1,4 @@
+import { logger } from "../config/logger.js";
 import { env } from "../config/environment-config.js";
 
 const GRAPH_API_BASE = "https://graph.facebook.com/v19.0";
@@ -35,7 +36,7 @@ async function sendToWhatsApp(
   const phoneNumberId = env.WHATSAPP_PHONE_NUMBER_ID;
 
   if (!accessToken || !phoneNumberId) {
-    console.warn("[WhatsAppAPI] Missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID");
+    logger.warn("[WhatsAppAPI] Missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID");
     return null;
   }
 
@@ -59,7 +60,7 @@ async function sendToWhatsApp(
 
     if (!response.ok) {
       const text = await response.text();
-      console.error(`[WhatsAppAPI] Send failed (${response.status}):`, text);
+      logger.error({ status: response.status, body: text }, "[WhatsAppAPI] Send failed");
       return null;
     }
 
@@ -67,10 +68,10 @@ async function sendToWhatsApp(
     const messages = result.messages as Array<{ id: string }> | undefined;
     const whatsappMessageId = messages?.[0]?.id ?? "";
 
-    console.log("[WhatsAppAPI] Message sent to", to, "id:", whatsappMessageId);
+    logger.info({ to, whatsappMessageId }, "[WhatsAppAPI] Message sent");
     return { whatsappMessageId };
   } catch (err) {
-    console.error("[WhatsAppAPI] Send error:", err instanceof Error ? err.message : err);
+    logger.error({ err }, "[WhatsAppAPI] Send error");
     return null;
   }
 }

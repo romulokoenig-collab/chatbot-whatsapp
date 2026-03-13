@@ -10,6 +10,7 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, "SUPABASE_SERVICE_ROLE_KEY is required"),
   API_KEY: z.string().min(1, "API_KEY is required"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
 
   // Kommo ChatAPI (Phase A) — optional, Phase B works without these
   KOMMO_CHANNEL_ID: z.string().optional(),
@@ -27,9 +28,9 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error("❌ Invalid environment variables:");
+  process.stderr.write("Invalid environment variables:\n");
   for (const issue of parsed.error.issues) {
-    console.error(`  - ${issue.path.join(".")}: ${issue.message}`);
+    process.stderr.write(`  - ${issue.path.join(".")}: ${issue.message}\n`);
   }
   process.exit(1);
 }

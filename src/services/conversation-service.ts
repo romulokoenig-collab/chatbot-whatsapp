@@ -1,4 +1,5 @@
 import { supabase } from "../config/supabase-client.js";
+import { logger } from "../config/logger.js";
 import type { MessageDirection } from "../types/database-types.js";
 
 interface UpsertConversationData {
@@ -33,7 +34,7 @@ export async function upsertConversation(data: UpsertConversationData): Promise<
     .single();
 
   if (error) {
-    console.error("[ConversationService] Upsert failed:", error.message);
+    logger.error({ err: error }, "[ConversationService] Upsert failed");
     throw error;
   }
 
@@ -58,7 +59,7 @@ export async function upsertConversation(data: UpsertConversationData): Promise<
     .eq("id", result.id);
 
   if (updateError) {
-    console.error("[ConversationService] Update after upsert failed:", updateError.message);
+    logger.error({ err: updateError }, "[ConversationService] Update after upsert failed");
   }
 
   return result.id;
