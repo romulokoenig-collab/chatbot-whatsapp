@@ -1,4 +1,4 @@
-import crypto from "crypto";
+import { generateHmacSha1, generateContentMd5 } from "../utils/hmac-signature.js";
 import { logger } from "../config/logger.js";
 import { env } from "../config/environment-config.js";
 
@@ -44,16 +44,11 @@ interface KommoHistoryResponse {
  * Per Kommo Chats API authentication spec.
  */
 function signGetRequest(method: string, path: string, secret: string): string {
-  const checksum = crypto
-    .createHash("md5")
-    .update(method + path)
-    .digest("hex");
-
-  return crypto.createHmac("sha1", secret).update(checksum).digest("hex");
+  const checksum = generateContentMd5(method + path);
+  return generateHmacSha1(checksum, secret);
 }
 
 function mapDirection(raw: KommoRawMessage): "incoming" | "outgoing" {
-  // Kommo uses origin: "0" or 0 for incoming, "1" or 1 for outgoing
   const origin = raw.origin !== undefined ? String(raw.origin) : null;
   if (origin === "1") return "outgoing";
   return "incoming";
@@ -82,7 +77,7 @@ function mapMessage(raw: KommoRawMessage): ChatHistoryMessage {
 export async function fetchChatHistory(
   conversationId: string,
   options: { limit?: number; offsetId?: string } = {}
-): Promise<ChatHistoryMessage[] | null> {
+): Promise<ChatHistoryMessage[]> {
   const scopeId = env.KOMMO_SCOPE_ID;
   const channelSecret = env.KOMMO_CHANNEL_SECRET;
 
@@ -143,5 +138,4 @@ export async function fetchChatHistory(
   return results;
 }
 
-// Re-export base URL constant for callers that need it
 export { KOMMO_CHAT_API_BASE };

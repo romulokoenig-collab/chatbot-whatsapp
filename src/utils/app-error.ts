@@ -21,7 +21,7 @@ export class AppError extends Error {
     return new AppError(message, 404, "NOT_FOUND");
   }
 
-  static internal(message: string): AppError {
+  static internal(): AppError {
     return new AppError("Internal server error", 500, "INTERNAL_ERROR");
   }
 }

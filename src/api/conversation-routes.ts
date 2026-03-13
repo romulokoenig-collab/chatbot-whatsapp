@@ -40,7 +40,7 @@ conversationRoutes.get("/conversations", async (req: Request, res: Response, nex
 
     if (error) {
       logger.error({ err: error }, "[conversations] DB error");
-      throw AppError.internal(error.message);
+      throw AppError.internal();
     }
 
     res.json({ data, count: data?.length ?? 0 });
@@ -65,14 +65,10 @@ conversationRoutes.get("/conversations/:id/messages", async (req: Request, res: 
 
     if (error) {
       logger.error({ err: error }, "[messages] DB error");
-      throw AppError.internal(error.message);
+      throw AppError.internal();
     }
 
-    if (!data || data.length === 0) {
-      throw AppError.notFound(`Conversation ${id} not found`);
-    }
-
-    res.json({ data, count: data.length });
+    res.json({ data: data ?? [], count: data?.length ?? 0 });
   } catch (err) {
     next(err);
   }
@@ -90,7 +86,7 @@ conversationRoutes.get("/leads/:kommoLeadId/status", async (req: Request, res: R
 
     if (error) {
       logger.error({ err: error }, "[leads/status] DB error");
-      throw AppError.internal(error.message);
+      throw AppError.internal();
     }
 
     if (!data || data.length === 0) {
